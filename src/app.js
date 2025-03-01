@@ -38,8 +38,8 @@ app.use(cors());         // Para habilitar CORS
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    // Heroku requiere que se use SSL, con rejectUnauthorized en false
-    rejectUnauthorized: false,
+    require: true,               // Fuerza el uso de SSL
+    rejectUnauthorized: false,   // No rechaza certificados no verificados
   },
 });
 
