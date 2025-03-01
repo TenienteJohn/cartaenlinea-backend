@@ -1,96 +1,150 @@
-if (process.env.NODE_ENV !== 'production') {
-  require('dotenv').config();
-}
+// routes/auth.js
 
-// Cargar las variables de entorno
-require('dotenv').config({ path: __dirname + '/.env' });
-console.log('DATABASE_URL:', process.env.DATABASE_URL);
-
-// Importar dependencias
+// 1. Importar las dependencias necesarias
 const express = require('express');
-const cors = require('cors');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
-// Importar el router de autenticación (subiendo un nivel con ../)
-const authRoutes = require('../routes/auth');
+// 2. Crear la instancia de Pool para conectarnos a PostgreSQL
+// Se recomienda, en entornos de producción como Heroku, usar la variable DATABASE_URL
+// y forzar el uso de SSL. En nuestro pool, la configuración SSL se manejará en el backend (en app.js)
+// pero aquí lo dejamos simple. Si es necesario, puedes agregar el objeto ssl aquí también.
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // En caso de que necesites forzar SSL desde este archivo, descomenta la siguiente sección:
+  // ssl: {
+  //   require: true,
+  //   rejectUnauthorized: false,
+  // },
+});
 
-// Importar nuestro router de comercios
-const commerceRoutes = require('../routes/commerces');
+// 3. Ruta de prueba para verificar que el router funciona correctamente
+router.get('/', (req, res) => {
+  res.json({ message: 'Auth router funcionando correctamente' });
+});
 
-// Importar tu middleware de autenticación
-const authMiddleware = require('../middlewares/authMiddleware');
+/**
+ * Helper: Decodificar token (si existe) para saber quién está registrando al nuevo usuario.
+ * Retorna null si no hay token o si no es válido.
+ */
+async function decodeTokenIfExists(req) {
+  const header = req.headers.authorization;
+  if (!header) return null;
 
-// Importar tus routers
-const categoriesRouter = require('../routes/categories');
-const productsRouter = require('../routes/products');
+  // El header suele ser "Bearer <token>"
+  const token = header.split(' ')[1];
+  if (!token) return null;
 
-// En app.js, después de configurar otras rutas
-const uploadRoutes = require('../routes/upload');
-
-// Inicializar la aplicación Express
-const app = express();
-
-// Configurar middlewares
-app.use(express.json()); // Para parsear JSON en las peticiones
-app.use(cors());         // Permite solicitudes desde cualquier origen (ajústalo según necesites)
-
-// Forzar que la cadena de conexión incluya el parámetro sslmode=require
-let connectionString = process.env.DATABASE_URL;
-if (connectionString && !connectionString.includes('sslmode=require')) {
-  connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    return decoded; // Ej: { userId, role, commerceId, iat, exp }
+  } catch (error) {
+    console.error('Error al verificar token en /register:', error);
+    return null;
+  }
 }
 
-// Conexión a PostgreSQL usando la librería 'pg'
-const pool = new Pool({
-  connectionString: connectionString,
-  ssl: {
-    require: true,               // Fuerza el uso de SSL
-    rejectUnauthorized: false,   // Permite certificados no verificados (necesario en Heroku)
-  },
+/**
+ * 4. Endpoint para registrar un nuevo usuario
+ * - Si NO hay token o el usuario logueado NO es SUPERUSER, forzamos role='OWNER' y commerce_id=NULL.
+ * - Si quien registra ES SUPERUSER, puede asignar role y commerce_id en el body.
+ */
+router.post('/register', async (req, res) => {
+  try {
+    // Extraer campos del body
+    const { email, password, role, commerce_id } = req.body;
+
+    // 4.1 Verificar si el usuario ya existe
+    const userExist = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userExist.rows.length > 0) {
+      return res.status(400).json({ error: 'El usuario ya existe' });
+    }
+
+    // 4.2 Verificar quién hace la petición (SUPERUSER o no)
+    const decoded = await decodeTokenIfExists(req);  // null si no hay token o token inválido
+
+    let finalRole = 'OWNER';
+    let finalCommerceId = null;
+
+    if (decoded && decoded.role === 'SUPERUSER') {
+      // El usuario que crea es SUPERUSER y puede asignar role y commerce_id personalizados
+      finalRole = role || 'OWNER';
+      finalCommerceId = commerce_id || null;
+    } else {
+      // Si un usuario normal (o sin token) intenta asignar role distinto a OWNER, se rechaza
+      if (role && role.toUpperCase() !== 'OWNER') {
+        return res.status(403).json({
+          error: 'Solo un SUPERUSER puede asignar roles distintos de OWNER',
+        });
+      }
+    }
+
+    // 4.3 Encriptar la contraseña
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // 4.4 Insertar el nuevo usuario
+    const query = `
+      INSERT INTO users (email, password, role, commerce_id)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, email, role, commerce_id
+    `;
+    const values = [email, hashedPassword, finalRole, finalCommerceId];
+    const newUser = await pool.query(query, values);
+
+    return res.status(201).json({
+      message: 'Usuario registrado exitosamente',
+      user: newUser.rows[0],
+    });
+
+  } catch (error) {
+    console.error('Error en /register:', error);
+    // Se devuelve el mensaje de error para diagnóstico (en producción, podrías omitir detalles)
+    return res.status(500).json({ error: 'Error en el servidor', details: error.message });
+  }
 });
 
-// Probar la conexión a la base de datos
-pool.connect()
-  .then(() => console.log('Conexión a PostgreSQL establecida correctamente'))
-  .catch(err => console.error('Error al conectar a PostgreSQL:', err));
+/**
+ * 5. Endpoint para iniciar sesión
+ * - Genera un token JWT que incluye: userId, role y commerce_id
+ */
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
 
-// Middleware para extraer el subdominio (tenant) de la solicitud
-app.use((req, res, next) => {
-  const host = req.headers.host || '';
-  const parts = host.split('.');
-  // Si el host tiene al menos 3 partes, toma la primera como subdominio; de lo contrario, usa 'default'
-  req.tenant = (parts.length >= 3) ? parts[0] : 'default';
-  console.log(`Tenant identificado: ${req.tenant}`);
-  next();
+  try {
+    // Buscar al usuario por email
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Credenciales inválidas' });
+    }
+
+    const user = userResult.rows[0];
+    console.log('Usuario encontrado:', user);
+
+    // Comparar la contraseña ingresada con la almacenada
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Generar un token JWT con la información necesaria
+    const payload = {
+      userId: user.id,
+      role: user.role,
+      commerceId: user.commerce_id,
+    };
+
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    console.log('Token generado:', token);
+
+    return res.json({ message: 'Inicio de sesión exitoso', token });
+  } catch (error) {
+    console.error('Error en /login:', error);
+    return res.status(500).json({ error: 'Error en el servidor', details: error.message });
+  }
 });
 
-// Ruta de prueba para verificar que el servidor funciona
-app.get('/', (req, res) => {
-  res.send('API funcionando');
-});
-
-// Rutas de autenticación (en /api/auth)
-// Estas rutas son públicas: login, register, etc.
-app.use('/api/auth', authRoutes);
-
-// Montar el router en /api/commerces
-// El superusuario puede crear/editar/borrar comercios aquí
-app.use('/api/commerces', commerceRoutes);
-
-// Rutas protegidas: se aplica authMiddleware antes de entrar al router
-// Cualquier ruta /api/categories o /api/products requiere un token JWT válido.
-app.use('/api/categories', authMiddleware, categoriesRouter);
-app.use('/api/products', authMiddleware, productsRouter);
-
-// Monta el endpoint de subida
-app.use('/api/upload', uploadRoutes);
-
-const expressListEndpoints = require("express-list-endpoints");
-console.log("📌 Rutas cargadas en Express:");
-console.log(expressListEndpoints(app));
-
-// Poner el servidor a escuchar en el puerto especificado en .env o 5000 por defecto
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
-});
+// 6. Exportar el router para usarlo en app.js
+module.exports = router;
