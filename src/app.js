@@ -1,3 +1,7 @@
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
 // Cargar las variables de entorno
 require('dotenv').config({ path: __dirname + '/.env' });
 console.log('DATABASE_URL:', process.env.DATABASE_URL);
@@ -75,7 +79,7 @@ app.use('/api/upload', uploadRoutes);
 
 // Poner el servidor a escuchar en el puerto especificado en .env
 // <-- Iniciamos la aplicación con node app.js
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
