@@ -77,6 +77,11 @@ app.use('/api/products', authMiddleware, productsRouter);
 // Monta el endpoint de subida
 app.use('/api/upload', uploadRoutes);
 
+const expressListEndpoints = require("express-list-endpoints");
+
+console.log("📌 Rutas cargadas en Express:");
+console.log(expressListEndpoints(app));
+
 // Poner el servidor a escuchar en el puerto especificado en .env
 // <-- Iniciamos la aplicación con node app.js
 const PORT = process.env.PORT || 5000;
