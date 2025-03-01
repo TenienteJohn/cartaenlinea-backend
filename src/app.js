@@ -1,3 +1,5 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
@@ -5,9 +7,6 @@ if (process.env.NODE_ENV !== 'production') {
 // Cargar las variables de entorno
 require('dotenv').config({ path: __dirname + '/.env' });
 console.log('DATABASE_URL:', process.env.DATABASE_URL);
-
-const fs = require('fs');
-const path = require('path');
 
 // Importar dependencias
 const express = require('express');
@@ -41,16 +40,12 @@ if (connectionString && !connectionString.includes('sslmode=require')) {
   connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
 }
 
-// Leer el certificado CA desde el archivo ubicado en la carpeta 'certs' en la raíz de la app
-const caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'DigiCertGlobalRootCA.crt')).toString();
-
-// Conexión a PostgreSQL usando la cadena modificada y configuración SSL segura
+// Conexión a PostgreSQL
 const pool = new Pool({
   connectionString: connectionString,
   ssl: {
     require: true,
-    rejectUnauthorized: true,
-    ca: caCert,
+    rejectUnauthorized: false,
   },
 });
 
@@ -68,12 +63,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Ruta de prueba para verificar que el servidor funciona
+// Ruta de prueba
 app.get('/', (req, res) => {
   res.send('API funcionando');
 });
 
-// Rutas de la API
+// Rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/commerces', commerceRoutes);
 app.use('/api/categories', authMiddleware, categoriesRouter);
@@ -88,6 +83,3 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
-
-
-
