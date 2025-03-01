@@ -1,3 +1,6 @@
+// Eliminar cualquier línea que deshabilite globalmente la verificación TLS en producción
+// process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
@@ -41,16 +44,17 @@ if (connectionString && !connectionString.includes('sslmode=require')) {
   connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
 }
 
-// Leer el certificado CA desde el archivo ubicado en la carpeta 'certs' en la raíz de la app
+// Leer el certificado CA desde la carpeta 'certs'
+// Asumimos que app.js está en "src/" y la carpeta certs está en la raíz
 const caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'DigiCertGlobalRootCA.crt')).toString();
 
 // Conexión a PostgreSQL usando la cadena modificada y configuración SSL segura
 const pool = new Pool({
   connectionString: connectionString,
   ssl: {
-    require: true,
-    rejectUnauthorized: true,
-    ca: caCert,
+    require: true,               // Forzar el uso de SSL
+    rejectUnauthorized: true,    // Validar el certificado
+    ca: caCert,                  // Certificado raíz para validar la conexión
   },
 });
 
