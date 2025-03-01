@@ -1,3 +1,13 @@
+// Agregar manejadores globales de errores para capturar excepciones no manejadas
+process.on('uncaughtException', (err) => {
+  console.error('Unhandled Exception:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err);
+  process.exit(1);
+});
+
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
@@ -41,25 +51,25 @@ if (connectionString && !connectionString.includes('sslmode=require')) {
   connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
 }
 
-// Leer el certificado CA desde la carpeta 'certs' en el directorio raíz
-// Ajusta la ruta si tu archivo app.js está en un lugar distinto;
-// en este ejemplo, se asume que app.js está en "src/" y certs en la raíz.
+// Leer el certificado CA desde la carpeta 'certs' en la raíz de la app.
+// Ajusta la ruta según la ubicación de app.js.
+// Este ejemplo asume que app.js está en "src/" y la carpeta certs en la raíz.
 let caCert;
 try {
   caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'igiCertGlobalRootCA.crt')).toString();
-  console.log('Certificado CA leído correctamente');
+  console.log('Certificado CA leído correctamente.');
 } catch (err) {
-  console.error('Error al leer el certificado CA:', err);
+  console.error('Error al leer el certificado CA. Asegúrate de que la carpeta "certs" y el archivo "igiCertGlobalRootCA.crt" estén incluidos en el repositorio:', err);
   process.exit(1);
 }
 
-// Conexión a PostgreSQL usando la cadena modificada y configuración SSL segura
+// Configurar la conexión a PostgreSQL usando SSL validado
 const pool = new Pool({
   connectionString: connectionString,
   ssl: {
-    require: true,               // Forzar el uso de SSL
-    rejectUnauthorized: true,    // Habilitar la verificación del certificado
-    ca: caCert,                  // Proveer el certificado raíz
+    require: true,               // Fuerza el uso de SSL
+    rejectUnauthorized: true,    // Verifica el certificado
+    ca: caCert,                  // Certificado raíz para la verificación
   },
 });
 
@@ -69,9 +79,9 @@ pool.connect()
   .catch(err => {
     console.error('Error al conectar a PostgreSQL:', err);
     process.exit(1);
-  });
+});
 
-// Middleware para extraer el subdominio (tenant) de la solicitud
+// Middleware para extraer el subdominio (tenant)
 app.use((req, res, next) => {
   const host = req.headers.host || '';
   const parts = host.split('.');
@@ -100,4 +110,5 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
+
 
