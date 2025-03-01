@@ -7,10 +7,19 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
-// 2. Crear la instancia de Pool para conectarnos a PostgreSQL
-//    (Si prefieres reutilizar un Pool definido en otro archivo, puedes importarlo aquí).
+// Forzar que la cadena de conexión incluya sslmode=require
+let connectionString = process.env.DATABASE_URL;
+if (connectionString && !connectionString.includes('sslmode=require')) {
+  connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
+}
+
+// 2. Crear la instancia de Pool para conectarnos a PostgreSQL con SSL forzado
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: connectionString,
+  ssl: {
+    require: true,
+    rejectUnauthorized: false,
+  },
 });
 
 // 3. Ruta de prueba para verificar que el router funciona correctamente
@@ -41,7 +50,6 @@ async function decodeTokenIfExists(req) {
 
 /**
  * 4. Endpoint para registrar un nuevo usuario
- * 
  * - Si NO hay token o el usuario logueado NO es SUPERUSER, forzamos role='OWNER' y commerce_id=NULL.
  * - Si quien registra ES SUPERUSER, puede asignar role y commerce_id en el body.
  */
@@ -63,14 +71,11 @@ router.post('/register', async (req, res) => {
     let finalCommerceId = null;
 
     if (decoded && decoded.role === 'SUPERUSER') {
-      // El usuario que crea ES SUPERUSER, puede asignar un role y commerce_id personalizados
-      // Si no manda role, por defecto 'OWNER'
+      // El usuario que crea es SUPERUSER, puede asignar role y commerce_id personalizados
       finalRole = role || 'OWNER';
-      // Si no manda commerce_id, por defecto null
       finalCommerceId = commerce_id || null;
     } else {
-      // OJO: Si un usuario normal (o sin token) intenta poner role=SUPERUSER, se ignora
-      // Podrías devolver un 403 si se intenta pasar role, en lugar de forzar
+      // Si un usuario normal (o sin token) intenta asignar role distinto a OWNER, se rechaza
       if (role && role.toUpperCase() !== 'OWNER') {
         return res.status(403).json({
           error: 'Solo un SUPERUSER puede asignar roles distintos de OWNER',
@@ -89,7 +94,6 @@ router.post('/register', async (req, res) => {
       RETURNING id, email, role, commerce_id
     `;
     const values = [email, hashedPassword, finalRole, finalCommerceId];
-
     const newUser = await pool.query(query, values);
 
     return res.status(201).json({
@@ -99,13 +103,13 @@ router.post('/register', async (req, res) => {
 
   } catch (error) {
     console.error('Error en /register:', error);
-    return res.status(500).json({ error: 'Error en el servidor' });
+    return res.status(500).json({ error: 'Error en el servidor', details: error.message });
   }
 });
 
 /**
  * 5. Endpoint para iniciar sesión
- *    - Genera un token que incluye: userId, role, commerce_id
+ * - Genera un token JWT que incluye: userId, role y commerce_id.
  */
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
@@ -118,6 +122,7 @@ router.post('/login', async (req, res) => {
     }
 
     const user = userResult.rows[0];
+    console.log('Usuario encontrado:', user);
 
     // Comparar la contraseña ingresada con la almacenada
     const isMatch = await bcrypt.compare(password, user.password);
@@ -125,22 +130,24 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Credenciales inválidas' });
     }
 
-    // Generar un token JWT con role y commerce_id
+    // Generar un token JWT con la información necesaria
     const payload = {
       userId: user.id,
-      role: user.role,            // 'SUPERUSER' o 'OWNER'
-      commerceId: user.commerce_id // Puede ser null o el id del comercio
+      role: user.role,
+      commerceId: user.commerce_id,
     };
 
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    console.log('Token generado:', token);
 
     return res.json({ message: 'Inicio de sesión exitoso', token });
   } catch (error) {
     console.error('Error en /login:', error);
-    return res.status(500).json({ error: 'Error en el servidor' });
+    return res.status(500).json({ error: 'Error en el servidor', details: error.message });
   }
 });
 
 // 6. Exportar el router para usarlo en app.js
 module.exports = router;
+
 
