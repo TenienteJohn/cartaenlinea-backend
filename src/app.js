@@ -32,14 +32,20 @@ const app = express();
 
 // Configurar middlewares
 app.use(express.json()); // Para parsear JSON en las peticiones
-app.use(cors());         // Para habilitar CORS
+app.use(cors());         // Permite solicitudes desde cualquier origen (ajústalo según necesites)
+
+// Forzar que la cadena de conexión incluya el parámetro sslmode=require
+let connectionString = process.env.DATABASE_URL;
+if (connectionString && !connectionString.includes('sslmode=require')) {
+  connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
+}
 
 // Conexión a PostgreSQL usando la librería 'pg'
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: connectionString,
   ssl: {
     require: true,               // Fuerza el uso de SSL
-    rejectUnauthorized: false,   // No rechaza certificados no verificados
+    rejectUnauthorized: false,   // Permite certificados no verificados (necesario en Heroku)
   },
 });
 
@@ -49,32 +55,30 @@ pool.connect()
   .catch(err => console.error('Error al conectar a PostgreSQL:', err));
 
 // Middleware para extraer el subdominio (tenant) de la solicitud
-// <-- Este middleware detecta el subdominio desde req.headers.host
 app.use((req, res, next) => {
   const host = req.headers.host || '';
   const parts = host.split('.');
-  // Si el host tiene al menos 3 partes, tomamos la primera como subdominio
+  // Si el host tiene al menos 3 partes, toma la primera como subdominio; de lo contrario, usa 'default'
   req.tenant = (parts.length >= 3) ? parts[0] : 'default';
   console.log(`Tenant identificado: ${req.tenant}`);
   next();
 });
 
 // Ruta de prueba para verificar que el servidor funciona
-// <-- Útil para comprobar rápidamente si la API está respondiendo
 app.get('/', (req, res) => {
   res.send('API funcionando');
 });
 
 // Rutas de autenticación (en /api/auth)
-// <-- Estas rutas son públicas: login, register, etc.
+// Estas rutas son públicas: login, register, etc.
 app.use('/api/auth', authRoutes);
 
 // Montar el router en /api/commerces
-// <-- El superusuario puede crear/editar/borrar comercios aquí
+// El superusuario puede crear/editar/borrar comercios aquí
 app.use('/api/commerces', commerceRoutes);
 
 // Rutas protegidas: se aplica authMiddleware antes de entrar al router
-// <-- Cualquier ruta /api/categories o /api/products requiere un token JWT válido.
+// Cualquier ruta /api/categories o /api/products requiere un token JWT válido.
 app.use('/api/categories', authMiddleware, categoriesRouter);
 app.use('/api/products', authMiddleware, productsRouter);
 
@@ -82,12 +86,10 @@ app.use('/api/products', authMiddleware, productsRouter);
 app.use('/api/upload', uploadRoutes);
 
 const expressListEndpoints = require("express-list-endpoints");
-
 console.log("📌 Rutas cargadas en Express:");
 console.log(expressListEndpoints(app));
 
-// Poner el servidor a escuchar en el puerto especificado en .env
-// <-- Iniciamos la aplicación con node app.js
+// Poner el servidor a escuchar en el puerto especificado en .env o 5000 por defecto
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
