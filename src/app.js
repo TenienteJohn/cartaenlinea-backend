@@ -37,6 +37,10 @@ app.use(cors());         // Para habilitar CORS
 // Conexión a PostgreSQL usando la librería 'pg'
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: {
+    // Heroku requiere que se use SSL, con rejectUnauthorized en false
+    rejectUnauthorized: false,
+  },
 });
 
 // Probar la conexión a la base de datos
