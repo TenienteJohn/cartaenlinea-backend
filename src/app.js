@@ -1,3 +1,5 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
