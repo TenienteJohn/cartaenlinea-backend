@@ -7,20 +7,23 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
-// 2. Crear la instancia de Pool para conectarnos a PostgreSQL
-// Se recomienda, en entornos de producción como Heroku, usar la variable DATABASE_URL
-// y forzar el uso de SSL. En nuestro pool, la configuración SSL se manejará en el backend (en app.js)
-// pero aquí lo dejamos simple. Si es necesario, puedes agregar el objeto ssl aquí también.
+// 2. Configurar la cadena de conexión para forzar SSL
+let connectionString = process.env.DATABASE_URL;
+if (connectionString && !connectionString.includes('sslmode=require')) {
+  connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
+}
+
+// 3. Crear la instancia de Pool para conectarnos a PostgreSQL
+// Forzamos el uso de SSL con require: true y rejectUnauthorized: false
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // En caso de que necesites forzar SSL desde este archivo, descomenta la siguiente sección:
-  // ssl: {
-  //   require: true,
-  //   rejectUnauthorized: false,
-  // },
+  connectionString: connectionString,
+  ssl: {
+    require: true,
+    rejectUnauthorized: false,
+  },
 });
 
-// 3. Ruta de prueba para verificar que el router funciona correctamente
+// 4. Ruta de prueba para verificar que el router funciona correctamente
 router.get('/', (req, res) => {
   res.json({ message: 'Auth router funcionando correctamente' });
 });
@@ -69,7 +72,7 @@ router.post('/register', async (req, res) => {
     let finalCommerceId = null;
 
     if (decoded && decoded.role === 'SUPERUSER') {
-      // El usuario que crea es SUPERUSER y puede asignar role y commerce_id personalizados
+      // El usuario que crea es SUPERUSER, puede asignar role y commerce_id personalizados
       finalRole = role || 'OWNER';
       finalCommerceId = commerce_id || null;
     } else {
@@ -101,14 +104,13 @@ router.post('/register', async (req, res) => {
 
   } catch (error) {
     console.error('Error en /register:', error);
-    // Se devuelve el mensaje de error para diagnóstico (en producción, podrías omitir detalles)
     return res.status(500).json({ error: 'Error en el servidor', details: error.message });
   }
 });
 
 /**
  * 5. Endpoint para iniciar sesión
- * - Genera un token JWT que incluye: userId, role y commerce_id
+ * - Genera un token JWT que incluye: userId, role y commerce_id.
  */
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
@@ -148,3 +150,4 @@ router.post('/login', async (req, res) => {
 
 // 6. Exportar el router para usarlo en app.js
 module.exports = router;
+
