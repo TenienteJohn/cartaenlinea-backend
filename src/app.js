@@ -18,6 +18,7 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 
+// Importar routers y middlewares
 const authRoutes = require('../routes/auth');
 const commerceRoutes = require('../routes/commerces');
 const authMiddleware = require('../middlewares/authMiddleware');
@@ -28,19 +29,22 @@ const uploadRoutes = require('../routes/upload');
 const app = express();
 app.use(express.json());
 
+// Configurar CORS para permitir solicitudes solo desde http://localhost:3000
 const corsOptions = {
   origin: "http://localhost:3000",
   optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
-// Ajuste de la cadena de conexión para asegurarnos que incluya sslmode=no-verify
+// Asegúrate de que la cadena de conexión tenga sslmode=no-verify
 let connectionString = process.env.DATABASE_URL;
+// Remover cualquier parámetro existente de sslmode y agregar el correcto
 connectionString = connectionString.replace(/(&|\?)sslmode=[^&]+/, '');
 connectionString += connectionString.includes('?') ? '&sslmode=no-verify' : '?sslmode=no-verify';
 console.log("Cadena de conexión ajustada:", connectionString);
 
-// Configuración del Pool sin objeto ssl explícito, para que se use PGSSLMODE
+// Configurar la conexión a PostgreSQL sin especificar manualmente el objeto ssl,
+// para que se utilice la configuración de PGSSLMODE (ya sea en la cadena o en la variable de entorno).
 const pool = new Pool({
   connectionString: connectionString
 });
@@ -78,3 +82,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
+
