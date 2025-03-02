@@ -29,6 +29,8 @@ const productsRouter = require('../routes/products');
 const uploadRoutes = require('../routes/upload');
 
 const app = express();
+
+// Configurar middlewares
 app.use(express.json());
 
 // Configurar CORS para permitir solicitudes solo desde http://localhost:3000
@@ -38,16 +40,20 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Forzar que la cadena de conexión incluya sslmode=require
+// Forzar que la cadena de conexión incluya sslmode=require (por si acaso)
 let connectionString = process.env.DATABASE_URL;
 if (connectionString && !connectionString.includes('sslmode=require')) {
   connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
 }
 
-// Configurar la conexión a PostgreSQL para que use SSL sin verificar (solución provisional)
+// Configuración de conexión a PostgreSQL para entornos Heroku Standard
+// (Nota: Este enfoque cifra la conexión pero no verifica la cadena de certificados,
+// lo que es común en entornos estándar de Heroku)
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  connectionString: connectionString,
+  ssl: {
+    rejectUnauthorized: false
+  },
 });
 
 // Probar la conexión a la base de datos
@@ -58,7 +64,7 @@ pool.connect()
     process.exit(1);
   });
 
-// Middleware para extraer el subdominio (tenant)
+// Middleware para extraer el subdominio (tenant) de la solicitud
 app.use((req, res, next) => {
   const host = req.headers.host || '';
   const parts = host.split('.');
