@@ -1,10 +1,5 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-const expressListEndpoints = require("express-list-endpoints");
-
-console.log("📌 Endpoints disponibles en el backend:");
-console.table(expressListEndpoints(app));
-
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
