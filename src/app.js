@@ -68,8 +68,8 @@ const pool = new Pool({
   connectionString: connectionString,
   ssl: {
     require: true,
-    rejectUnauthorized: true,
-    ca: caCert,
+    rejectUnauthorized: false,
+    //ca: caCert,
   },
 });
 
