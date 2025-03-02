@@ -1,3 +1,4 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 // Manejadores globales de errores para capturar excepciones no manejadas
 process.on('uncaughtException', (err) => {
   console.error('Unhandled Exception:', err);
