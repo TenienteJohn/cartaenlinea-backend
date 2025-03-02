@@ -1,4 +1,3 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 // Manejadores globales de errores para capturar excepciones no manejadas
 process.on('uncaughtException', (err) => {
   console.error('Unhandled Exception:', err);
@@ -69,8 +68,8 @@ const pool = new Pool({
   connectionString: connectionString,
   ssl: {
     require: true,
-    rejectUnauthorized: false,
-    //ca: caCert,
+    rejectUnauthorized: true,
+    ca: caCert,
   },
 });
 
