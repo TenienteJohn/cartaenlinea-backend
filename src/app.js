@@ -54,12 +54,14 @@ if (connectionString && !connectionString.includes('sslmode=require')) {
 // Leer el certificado CA desde la carpeta 'certs' en la raíz de la app.
 // Ajusta la ruta según la ubicación de app.js.
 // Este ejemplo asume que app.js está en "src/" y la carpeta certs en la raíz.
+// Leer la cadena de certificados (CA) desde el archivo en la carpeta 'certs'
 let caCert;
 try {
-  caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'DigiCertGlobalRootCA.pem')).toString();
-  console.log('Certificado CA leído correctamente.');
+  caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'DigiCertChain.pem')).toString();
+  console.log('Cadena de certificados (CA) leída correctamente:');
+  console.log(caCert.substring(0, 100) + '...'); // Muestra los primeros 100 caracteres para confirmar
 } catch (err) {
-  console.error('Error al leer el certificado CA. Asegúrate de que la carpeta "certs" y el archivo "igiCertGlobalRootCA.crt" estén incluidos en el repositorio:', err);
+  console.error('Error al leer la cadena de certificados CA. Verifica que la carpeta "certs" y el archivo "DigiCertChain.pem" existan:', err);
   process.exit(1);
 }
 
