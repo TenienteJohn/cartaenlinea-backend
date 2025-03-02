@@ -29,8 +29,6 @@ const productsRouter = require('../routes/products');
 const uploadRoutes = require('../routes/upload');
 
 const app = express();
-
-// Configurar middlewares
 app.use(express.json());
 
 // Configurar CORS para permitir solicitudes solo desde http://localhost:3000
@@ -40,23 +38,18 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Forzar que la cadena de conexión incluya sslmode=require (por si acaso)
+// Si es necesario, puedes asegurarte de que la cadena de conexión contenga sslmode=no-verify
+// Por ejemplo, si DATABASE_URL no lo incluye, puedes forzarlo (opcional):
 let connectionString = process.env.DATABASE_URL;
-if (connectionString && !connectionString.includes('sslmode=require')) {
-  connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
+if (connectionString && !connectionString.match(/sslmode=/)) {
+  connectionString += connectionString.includes('?') ? '&sslmode=no-verify' : '?sslmode=no-verify';
 }
 
-// Configuración de conexión a PostgreSQL para entornos Heroku Standard
-// (Nota: Este enfoque cifra la conexión pero no verifica la cadena de certificados,
-// lo que es común en entornos estándar de Heroku)
+// Configurar la conexión a PostgreSQL sin especificar el objeto ssl (se confiará en PGSSLMODE)
 const pool = new Pool({
-  connectionString: connectionString,
-  ssl: {
-    rejectUnauthorized: false
-  },
+  connectionString: connectionString
 });
 
-// Probar la conexión a la base de datos
 pool.connect()
   .then(() => console.log('Conexión a PostgreSQL establecida correctamente'))
   .catch(err => {
@@ -64,7 +57,7 @@ pool.connect()
     process.exit(1);
   });
 
-// Middleware para extraer el subdominio (tenant) de la solicitud
+// Middleware para extraer el subdominio (tenant)
 app.use((req, res, next) => {
   const host = req.headers.host || '';
   const parts = host.split('.');
