@@ -11,8 +11,6 @@ process.on('unhandledRejection', (err) => {
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
-
-// Cargar las variables de entorno
 require('dotenv').config({ path: __dirname + '/.env' });
 console.log('DATABASE_URL:', process.env.DATABASE_URL);
 
@@ -20,7 +18,6 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 
-// Importar routers y middlewares
 const authRoutes = require('../routes/auth');
 const commerceRoutes = require('../routes/commerces');
 const authMiddleware = require('../middlewares/authMiddleware');
@@ -31,21 +28,19 @@ const uploadRoutes = require('../routes/upload');
 const app = express();
 app.use(express.json());
 
-// Configurar CORS para permitir solicitudes solo desde http://localhost:3000
 const corsOptions = {
   origin: "http://localhost:3000",
   optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
-// Si es necesario, puedes asegurarte de que la cadena de conexión contenga sslmode=no-verify
-// Por ejemplo, si DATABASE_URL no lo incluye, puedes forzarlo (opcional):
+// Ajuste de la cadena de conexión para asegurarnos que incluya sslmode=no-verify
 let connectionString = process.env.DATABASE_URL;
-if (connectionString && !connectionString.match(/sslmode=/)) {
-  connectionString += connectionString.includes('?') ? '&sslmode=no-verify' : '?sslmode=no-verify';
-}
+connectionString = connectionString.replace(/(&|\?)sslmode=[^&]+/, '');
+connectionString += connectionString.includes('?') ? '&sslmode=no-verify' : '?sslmode=no-verify';
+console.log("Cadena de conexión ajustada:", connectionString);
 
-// Configurar la conexión a PostgreSQL sin especificar el objeto ssl (se confiará en PGSSLMODE)
+// Configuración del Pool sin objeto ssl explícito, para que se use PGSSLMODE
 const pool = new Pool({
   connectionString: connectionString
 });
@@ -57,7 +52,6 @@ pool.connect()
     process.exit(1);
   });
 
-// Middleware para extraer el subdominio (tenant)
 app.use((req, res, next) => {
   const host = req.headers.host || '';
   const parts = host.split('.');
@@ -66,12 +60,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Ruta de prueba para verificar que el servidor funciona
 app.get('/', (req, res) => {
   res.send('API funcionando');
 });
 
-// Rutas de la API
 app.use('/api/auth', authRoutes);
 app.use('/api/commerces', commerceRoutes);
 app.use('/api/categories', authMiddleware, categoriesRouter);
