@@ -71,7 +71,6 @@ const pool = new Pool({
   ssl: {
     require: true,               // Fuerza el uso de SSL
     rejectUnauthorized: false,    // Verifica el certificado
-    ca: caCert,                  // Certificado raíz para la verificación
   },
 });
 
