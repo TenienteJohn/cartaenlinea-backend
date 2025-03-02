@@ -56,7 +56,7 @@ if (connectionString && !connectionString.includes('sslmode=require')) {
 // Este ejemplo asume que app.js está en "src/" y la carpeta certs en la raíz.
 let caCert;
 try {
-  caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'igiCertGlobalRootCA.crt')).toString();
+  caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'DigiCertGlobalRootCA.crt')).toString();
   console.log('Certificado CA leído correctamente.');
 } catch (err) {
   console.error('Error al leer el certificado CA. Asegúrate de que la carpeta "certs" y el archivo "igiCertGlobalRootCA.crt" estén incluidos en el repositorio:', err);
