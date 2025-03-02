@@ -1,5 +1,10 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
+const expressListEndpoints = require("express-list-endpoints");
+
+console.log("📌 Endpoints disponibles en el backend:");
+console.table(expressListEndpoints(app));
+
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
@@ -70,7 +75,7 @@ app.get('/', (req, res) => {
 
 // Rutas
 app.use('/api/auth', authRoutes);
-app.use('/api/commerces', commerceRoutes);
+app.use('/api/commerces', authMiddleware, commerceRoutes);
 app.use('/api/categories', authMiddleware, categoriesRouter);
 app.use('/api/products', authMiddleware, productsRouter);
 app.use('/api/upload', uploadRoutes);
