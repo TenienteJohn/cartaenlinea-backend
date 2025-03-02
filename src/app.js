@@ -1,19 +1,12 @@
-// Manejadore globales de errores para capturar excepciones no manejadas
-process.on('uncaughtException', (err) => {
-  console.error('Unhandled Exception:', err);
-  process.exit(1);
-});
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Rejection:', err);
-  process.exit(1);
-});
-
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
+
+// Cargar las variables de entorno
 require('dotenv').config({ path: __dirname + '/.env' });
 console.log('DATABASE_URL:', process.env.DATABASE_URL);
 
+// Importar dependencias
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -26,48 +19,54 @@ const categoriesRouter = require('../routes/categories');
 const productsRouter = require('../routes/products');
 const uploadRoutes = require('../routes/upload');
 
+// Inicializar la aplicación Express
 const app = express();
+
+// Configurar middlewares
 app.use(express.json());
 
-// Configurar CORS para permitir solicitudes solo desde http://localhost:3000
+// Configurar CORS para permitir solo desde http://localhost:3000
 const corsOptions = {
   origin: "http://localhost:3000",
   optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
-// Asegúrate de que la cadena de conexión tenga sslmode=no-verify
+// Forzar que la cadena de conexión incluya sslmode=require
 let connectionString = process.env.DATABASE_URL;
-// Remover cualquier parámetro existente de sslmode y agregar el correcto
-connectionString = connectionString.replace(/(&|\?)sslmode=[^&]+/, '');
-connectionString += connectionString.includes('?') ? '&sslmode=no-verify' : '?sslmode=no-verify';
-console.log("Cadena de conexión ajustada:", connectionString);
+if (connectionString && !connectionString.includes('sslmode=require')) {
+  connectionString += connectionString.includes('?') ? '&sslmode=require' : '?sslmode=require';
+}
 
-// Configurar la conexión a PostgreSQL sin especificar manualmente el objeto ssl,
-// para que se utilice la configuración de PGSSLMODE (ya sea en la cadena o en la variable de entorno).
+// Conexión a PostgreSQL
 const pool = new Pool({
-  connectionString: connectionString
+  connectionString: connectionString,
+  ssl: {
+    require: true,
+    rejectUnauthorized: false,
+  },
 });
 
+// Probar la conexión a la base de datos
 pool.connect()
   .then(() => console.log('Conexión a PostgreSQL establecida correctamente'))
-  .catch(err => {
-    console.error('Error al conectar a PostgreSQL:', err);
-    process.exit(1);
-  });
+  .catch(err => console.error('Error al conectar a PostgreSQL:', err));
 
+// Middleware para extraer el subdominio (tenant)
 app.use((req, res, next) => {
   const host = req.headers.host || '';
-  const parts = host.split('.');
+  const Paris = host.split('.');
   req.tenant = (parts.length >= 3) ? parts[0] : 'default';
   console.log(`Tenant identificado: ${req.tenant}`);
   next();
 });
 
+// Ruta de prueba
 app.get('/', (req, res) => {
   res.send('API funcionando');
 });
 
+// Rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/commerces', commerceRoutes);
 app.use('/api/categories', authMiddleware, categoriesRouter);
