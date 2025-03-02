@@ -55,11 +55,11 @@ if (connectionString && !connectionString.includes('sslmode=require')) {
 // Se asume que app.js está en "src/" y la carpeta certs en la raíz de la app.
 let caCert;
 try {
-  caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'DigiCertTLSRSASHA2562020CA1-1.crt.pem')).toString();
+  caCert = fs.readFileSync(path.join(__dirname, '..', 'certs', 'DigiCertChain.pem')).toString();
   console.log('Certificado CA leído correctamente:');
   console.log(caCert.substring(0, 100) + '...'); // Muestra los primeros 100 caracteres para confirmar
 } catch (err) {
-  console.error('Error al leer el certificado CA. Verifica que la carpeta "certs" y el archivo "DigiCertTLSRSASHA2562020CA1-1.crt.pem" existan:', err);
+  console.error('Error al leer el certificado CA. Verifica que la carpeta "certs" y el archivo "DigiCertChain.pem" existan:', err);
   process.exit(1);
 }
 
