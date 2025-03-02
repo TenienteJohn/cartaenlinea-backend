@@ -1,4 +1,5 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
@@ -56,7 +57,7 @@ pool.connect()
 // Middleware para extraer el subdominio (tenant)
 app.use((req, res, next) => {
   const host = req.headers.host || '';
-  const Paris = host.split('.');
+  const parts = host.split('.');
   req.tenant = (parts.length >= 3) ? parts[0] : 'default';
   console.log(`Tenant identificado: ${req.tenant}`);
   next();
@@ -82,4 +83,5 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
+
 
