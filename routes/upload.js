@@ -28,21 +28,34 @@ const pool = new Pool({
 router.put('/:id/update-logo', authMiddleware, upload.single('image'), async (req, res) => {
   const { id } = req.params;
 
+  // Verificar si el archivo se recibió correctamente
+  console.log("📸 Archivo recibido:", req.file);
+
   if (!req.file) {
     return res.status(400).json({ error: 'No se recibió ninguna imagen' });
   }
 
   try {
+    console.log(`📤 Subiendo imagen para comercio ID: ${id}`);
+
     // Subir la imagen a Cloudinary
     const uploadResult = await new Promise((resolve, reject) => {
-      cloudinary.uploader.upload_stream(
+      const stream = cloudinary.uploader.upload_stream(
         { folder: 'commerces-logos', use_filename: true, unique_filename: false },
         (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
+          if (error) {
+            console.error('❌ Error subiendo imagen a Cloudinary:', error);
+            reject(error);
+          } else {
+            console.log('✅ Imagen subida correctamente a Cloudinary:', result.secure_url);
+            resolve(result);
+          }
         }
-      ).end(req.file.buffer);
+      );
+      stream.end(req.file.buffer); // 🔥 Corregido: Se asegura que Cloudinary reciba el archivo
     });
+
+    console.log(`✅ Guardando en BD: ${uploadResult.secure_url}`);
 
     // Guardar la URL en PostgreSQL
     const query = `UPDATE commerces SET logo_url = $1 WHERE id = $2 RETURNING *`;
@@ -56,10 +69,11 @@ router.put('/:id/update-logo', authMiddleware, upload.single('image'), async (re
     res.json({ message: 'Logo actualizado correctamente', commerce: dbResult.rows[0] });
 
   } catch (error) {
-    console.error('Error en la actualización del logo:', error);
+    console.error('❌ Error en la actualización del logo:', error);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
 
 module.exports = router;
+
 
