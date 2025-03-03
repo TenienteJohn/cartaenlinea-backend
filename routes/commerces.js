@@ -36,6 +36,8 @@ router.put('/:id/update-logo', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const { logoUrl } = req.body;
 
+  console.log("📌 Datos recibidos para actualizar logo:", { id, logoUrl }); // 🔍 Verificar qué llega al backend
+
   // Verificar si el usuario es SUPERUSER
   if (req.user.role !== 'SUPERUSER') {
     return res.status(403).json({ error: 'No tienes permisos para actualizar el logo' });
