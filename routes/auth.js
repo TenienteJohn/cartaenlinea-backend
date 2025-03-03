@@ -1,5 +1,3 @@
-// routes/auth.js
-
 // 1. Importar las dependencias necesarias
 const express = require('express');
 const router = express.Router();
@@ -110,6 +108,7 @@ router.post('/register', async (req, res) => {
 /**
  * 5. Endpoint para iniciar sesión
  * - Genera un token JWT que incluye: userId, role y commerce_id.
+ * - Ahora también devuelve el role en la respuesta JSON.
  */
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
@@ -140,7 +139,13 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
     console.log('Token generado:', token);
 
-    return res.json({ message: 'Inicio de sesión exitoso', token });
+    // 🔹 Ahora enviamos el role en la respuesta JSON
+    return res.json({
+      message: 'Inicio de sesión exitoso',
+      token,
+      role: user.role // ✅ Agregado para que el frontend lo pueda leer correctamente
+    });
+
   } catch (error) {
     console.error('Error en /login:', error);
     return res.status(500).json({ error: 'Error en el servidor', details: error.message });
@@ -149,5 +154,3 @@ router.post('/login', async (req, res) => {
 
 // 6. Exportar el router para usarlo en app.js
 module.exports = router;
-
-
