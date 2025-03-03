@@ -1,5 +1,5 @@
 const cloudinary = require('cloudinary').v2;
-const multer = require('multer');
+const axios = require('axios');
 const { Pool } = require('pg');
 const express = require('express');
 const router = express.Router();
@@ -12,10 +12,6 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Configurar Multer para almacenamiento temporal en memoria
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
 // Conexión a PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -23,44 +19,41 @@ const pool = new Pool({
 
 /**
  * PUT /api/commerces/:id/update-logo
- * Sube una imagen a Cloudinary y guarda la URL en PostgreSQL.
+ * Descarga la imagen de la URL, la sube a Cloudinary y guarda la URL en PostgreSQL.
  */
-
-router.put('/:id/update-logo', authMiddleware, upload.single('image'), async (req, res) => {
+router.put('/:id/update-logo', authMiddleware, async (req, res) => {
   const { id } = req.params;
+  const { logoUrl } = req.body;
 
-  console.log("📌 REQUEST HEADERS:", req.headers);
-  console.log("📌 REQUEST BODY:", req.body);
-  console.log("📌 REQUEST FILE:", req.file);
-
-  if (!req.file) {
-    console.error("❌ ERROR: No se recibió ninguna imagen en la solicitud");
-    return res.status(400).json({ error: 'No se recibió ninguna imagen' });
+  if (!logoUrl) {
+    return res.status(400).json({ error: 'Falta la URL de la imagen' });
   }
 
   try {
-    console.log(`📤 Subiendo imagen para comercio ID: ${id}`);
+    console.log(`📌 Descargando imagen desde: ${logoUrl}`);
 
-    // Subir la imagen a Cloudinary
-    const uploadResult = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder: 'commerces-logos', use_filename: true, unique_filename: false },
-        (error, result) => {
-          if (error) {
-            console.error('❌ Error subiendo imagen a Cloudinary:', error);
-            reject(error);
-          } else {
-            console.log('✅ Imagen subida correctamente a Cloudinary:', result.secure_url);
-            resolve(result);
-          }
-        }
-      );
-      stream.end(req.file.buffer); // 🔥 Corregido: Se asegura que Cloudinary reciba el archivo
+    // Descargar la imagen desde la URL
+    const response = await axios({
+      url: logoUrl,
+      responseType: 'stream',
     });
 
-    console.log(`✅ Guardando en BD: ${uploadResult.secure_url}`);
+    // Subir la imagen descargada a Cloudinary
+    const uploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: 'commerces-logos' },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
 
-    // Guardar la URL en PostgreSQL
+      response.data.pipe(uploadStream);
+    });
+
+    console.log(`✅ Imagen subida a Cloudinary: ${uploadResult.secure_url}`);
+
+    // Guardar la URL de Cloudinary en la base de datos
     const query = `UPDATE commerces SET logo_url = $1 WHERE id = $2 RETURNING *`;
     const values = [uploadResult.secure_url, id];
     const dbResult = await pool.query(query, values);
@@ -78,5 +71,6 @@ router.put('/:id/update-logo', authMiddleware, upload.single('image'), async (re
 });
 
 module.exports = router;
+
 
 
