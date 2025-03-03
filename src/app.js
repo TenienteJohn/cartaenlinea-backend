@@ -74,7 +74,6 @@ app.use('/api/commerces', authMiddleware, commerceRoutes);
 app.use('/api/categories', authMiddleware, categoriesRouter);
 app.use('/api/products', authMiddleware, productsRouter);
 app.use('/api/upload', uploadRoutes);
-app.use('/api/commerces', uploadRoutes);
 
 const expressListEndpoints = require("express-list-endpoints");
 console.log("📌 Rutas cargadas en Express:");
