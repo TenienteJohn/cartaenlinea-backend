@@ -37,6 +37,8 @@ router.put('/:id/update-logo', authMiddleware, async (req, res) => {
   const { logoUrl } = req.body;
 
   console.log("📌 Datos recibidos para actualizar logo:", { id, logoUrl }); // 🔍 Verificar qué llega al backend
+  console.log(`🔹 Solicitud recibida en /update-logo para ID: ${id}`);
+  console.log(`🔹 Logo URL recibida: ${logoUrl}`);
 
   // Verificar si el usuario es SUPERUSER
   if (req.user.role !== 'SUPERUSER') {
