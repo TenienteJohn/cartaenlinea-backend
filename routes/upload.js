@@ -31,9 +31,14 @@ router.put('/:id/update-logo', authMiddleware, upload.single('image'), async (re
   // Verificar si el archivo se recibió correctamente
   console.log("📸 Archivo recibido:", req.file);
 
-  if (!req.file) {
-    return res.status(400).json({ error: 'No se recibió ninguna imagen' });
-  }
+  console.log("📌 Body recibido:", req.body);
+
+   if (!req.file) {
+     console.error("❌ Error: No se recibió ninguna imagen en la solicitud");
+     return res.status(400).json({ error: 'No se recibió ninguna imagen' });
+   }
+
+
 
   try {
     console.log(`📤 Subiendo imagen para comercio ID: ${id}`);
