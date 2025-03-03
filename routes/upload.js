@@ -25,20 +25,18 @@ const pool = new Pool({
  * PUT /api/commerces/:id/update-logo
  * Sube una imagen a Cloudinary y guarda la URL en PostgreSQL.
  */
+
 router.put('/:id/update-logo', authMiddleware, upload.single('image'), async (req, res) => {
   const { id } = req.params;
 
-  // Verificar si el archivo se recibió correctamente
-  console.log("📸 Archivo recibido:", req.file);
+  console.log("📌 REQUEST HEADERS:", req.headers);
+  console.log("📌 REQUEST BODY:", req.body);
+  console.log("📌 REQUEST FILE:", req.file);
 
-  console.log("📌 Body recibido:", req.body);
-
-   if (!req.file) {
-     console.error("❌ Error: No se recibió ninguna imagen en la solicitud");
-     return res.status(400).json({ error: 'No se recibió ninguna imagen' });
-   }
-
-
+  if (!req.file) {
+    console.error("❌ ERROR: No se recibió ninguna imagen en la solicitud");
+    return res.status(400).json({ error: 'No se recibió ninguna imagen' });
+  }
 
   try {
     console.log(`📤 Subiendo imagen para comercio ID: ${id}`);
