@@ -19,7 +19,7 @@ const commerceRoutes = require('../routes/commerces');
 const authMiddleware = require('../middlewares/authMiddleware');
 const categoriesRouter = require('../routes/categories');
 const productsRouter = require('../routes/products');
-const uploadRoutes = require('../routes/upload');
+const uploadRoutes = require('../routes/upload'); // ✅ Importamos uploadRoutes
 
 // Inicializar la aplicación Express
 const app = express();
@@ -74,6 +74,7 @@ app.use('/api/commerces', authMiddleware, commerceRoutes);
 app.use('/api/categories', authMiddleware, categoriesRouter);
 app.use('/api/products', authMiddleware, productsRouter);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/commerces', uploadRoutes);
 
 const expressListEndpoints = require("express-list-endpoints");
 console.log("📌 Rutas cargadas en Express:");
