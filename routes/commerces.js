@@ -62,18 +62,19 @@ router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (re
           folder: "commerces-logos",
           use_filename: true,
           unique_filename: false,
-          timestamp: Math.round(new Date().getTime() / 1000), // 🔹 Asegura la firma correcta
+          resource_type: "image",
         },
         (error, result) => {
           if (error) {
             console.error("❌ Error en Cloudinary:", error);
             reject(error);
           } else {
-            console.log("✅ Imagen subida con éxito:", result.secure_url);
+            console.log("✅ Imagen subida con éxito en Cloudinary:", result.secure_url);
             resolve(result);
           }
         }
       );
+
       uploadStream.end(req.file.buffer);
     });
 
