@@ -24,25 +24,12 @@ const pool = new Pool({
 
 /**
  * 🔹 GET /api/commerces
- * ✅ Obtiene la lista de comercios
+ * Obtiene la lista de comercios
  */
 router.get("/", authMiddleware, async (req, res) => {
   try {
-    console.log("📌 Solicitando lista de comercios...");
-
-    const result = await pool.query(`
-      SELECT id, business_name, subdomain, address, phone, owner_name, category, logo_url, created_at, updated_at
-      FROM commerces
-      ORDER BY created_at DESC;
-    `);
-
-    if (result.rows.length === 0) {
-      console.warn("⚠️ No se encontraron comercios.");
-      return res.json({ message: "No hay comercios registrados", commerces: [] });
-    }
-
-    console.log("✅ Comercios obtenidos correctamente.");
-    res.json({ commerces: result.rows });
+    const result = await pool.query("SELECT * FROM commerces");
+    res.json(result.rows);
   } catch (error) {
     console.error("❌ Error obteniendo comercios:", error);
     res.status(500).json({ error: "Error al obtener comercios" });
@@ -114,7 +101,7 @@ router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (re
     console.log("📌 Subiendo imagen a Cloudinary...");
 
     // 🔹 Generar un nombre único basado en el ID del comercio y la fecha
-    const timestamp = Date.now();
+    const timestamp = Date.now(); // Marca de tiempo actual
     const publicId = `commerces-logos/comercio_${id}_${timestamp}`;
 
     // 🔹 Subir la imagen a Cloudinary
