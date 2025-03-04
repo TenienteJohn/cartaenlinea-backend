@@ -12,7 +12,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// 🔹 Configurar almacenamiento de imágenes en memoria con Multer
+// 🔹 Configurar almacenamiento en memoria con Multer
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
@@ -43,17 +43,19 @@ router.get("/", authMiddleware, async (req, res) => {
 router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (req, res) => {
   const { id } = req.params;
 
-  // Validar que el ID sea un número
+  // 🔍 Validar que el ID sea un número
   if (isNaN(id)) {
+    console.error("❌ ID de comercio inválido:", id);
     return res.status(400).json({ error: "ID de comercio inválido" });
   }
 
   if (!req.file) {
+    console.error("❌ No se recibió ninguna imagen.");
     return res.status(400).json({ error: "No se recibió ninguna imagen" });
   }
 
   try {
-    console.log("📌 Subiendo imagen a Cloudinary...");
+    console.log("📌 Subiendo imagen a Cloudinary para comercio ID:", id);
 
     // 🔹 Subir la imagen a Cloudinary
     const uploadResult = await new Promise((resolve, reject) => {
@@ -62,7 +64,8 @@ router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (re
           folder: "commerces-logos",
           use_filename: true,
           unique_filename: false,
-          resource_type: "image",
+          format: "png", // 📌 Asegura que se guarde en formato PNG
+          transformation: [{ quality: "auto", fetch_format: "auto" }], // 🔹 Optimiza la imagen
         },
         (error, result) => {
           if (error) {
@@ -74,16 +77,16 @@ router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (re
           }
         }
       );
-
       uploadStream.end(req.file.buffer);
     });
 
-    // Verificar que la imagen se subió correctamente
+    // 🔍 Verificar que la imagen se subió correctamente
     if (!uploadResult || !uploadResult.secure_url) {
-      return res.status(500).json({ error: "Error subiendo imagen a Cloudinary" });
+      console.error("❌ No se obtuvo una URL de Cloudinary.");
+      return res.status(500).json({ error: "Error al subir la imagen a Cloudinary" });
     }
 
-    console.log("✅ Imagen subida correctamente:", uploadResult.secure_url);
+    console.log("✅ URL obtenida de Cloudinary:", uploadResult.secure_url);
 
     // 🔹 Guardar la URL en PostgreSQL
     const query = `UPDATE commerces SET logo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *`;
@@ -91,6 +94,7 @@ router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (re
     const dbResult = await pool.query(query, values);
 
     if (dbResult.rows.length === 0) {
+      console.error("❌ Comercio no encontrado en la base de datos.");
       return res.status(404).json({ error: "Comercio no encontrado" });
     }
 
@@ -104,6 +108,7 @@ router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (re
 });
 
 module.exports = router;
+
 
 
 
