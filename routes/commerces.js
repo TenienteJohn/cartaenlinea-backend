@@ -16,7 +16,7 @@ cloudinary.config({
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// 🔹 Conexión única a PostgreSQL
+// 🔹 Conexión a PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
@@ -31,33 +31,51 @@ router.get("/", authMiddleware, async (req, res) => {
     const result = await pool.query("SELECT * FROM commerces");
     res.json(result.rows);
   } catch (error) {
-    console.error("Error obteniendo comercios:", error);
+    console.error("❌ Error obteniendo comercios:", error);
     res.status(500).json({ error: "Error al obtener comercios" });
   }
 });
 
 /**
  * 🔹 PUT /api/commerces/:id/update-logo
- * ✅ Nueva ruta unificada para subir imagen y actualizar logo en la base de datos
+ * ✅ Sube una imagen a Cloudinary y actualiza el logo del comercio
  */
 router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (req, res) => {
   const { id } = req.params;
+
+  // Validar que el ID sea un número
+  if (isNaN(id)) {
+    return res.status(400).json({ error: "ID de comercio inválido" });
+  }
 
   if (!req.file) {
     return res.status(400).json({ error: "No se recibió ninguna imagen" });
   }
 
   try {
+    console.log("📌 Subiendo imagen a Cloudinary...");
+
     // 🔹 Subir la imagen a Cloudinary
     const uploadResult = await new Promise((resolve, reject) => {
       cloudinary.uploader.upload_stream(
         { folder: "commerces-logos", use_filename: true, unique_filename: false },
         (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
+          if (error) {
+            console.error("❌ Error en Cloudinary:", error);
+            reject(error);
+          } else {
+            resolve(result);
+          }
         }
       ).end(req.file.buffer);
     });
+
+    // Verificar que la imagen se subió correctamente
+    if (!uploadResult || !uploadResult.secure_url) {
+      return res.status(500).json({ error: "Error subiendo imagen a Cloudinary" });
+    }
+
+    console.log("✅ Imagen subida correctamente:", uploadResult.secure_url);
 
     // 🔹 Guardar la URL en PostgreSQL
     const query = `UPDATE commerces SET logo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *`;
@@ -68,13 +86,16 @@ router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (re
       return res.status(404).json({ error: "Comercio no encontrado" });
     }
 
+    console.log("✅ Logo actualizado en la base de datos:", dbResult.rows[0]);
+
     res.json({ message: "Logo actualizado correctamente", commerce: dbResult.rows[0] });
   } catch (error) {
-    console.error("Error en la actualización del logo:", error);
+    console.error("❌ Error en la actualización del logo:", error);
     res.status(500).json({ error: "Error en el servidor" });
   }
 });
 
 module.exports = router;
+
 
 
