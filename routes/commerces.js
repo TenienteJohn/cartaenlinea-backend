@@ -35,59 +35,51 @@ router.get("/", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Error al obtener comercios" });
   }
 });
-
 /**
  * 🔹 DELETE /api/commerces/:id
- * ✅ Elimina un comercio, eliminando primero sus usuarios y su logo en Cloudinary.
+ * ✅ Elimina un comercio de la base de datos y borra su logo de Cloudinary (si existe).
  */
 router.delete("/:id", authMiddleware, async (req, res) => {
   const { id } = req.params;
 
   try {
-    // 1️⃣ Obtener la imagen del comercio antes de eliminarlo
-    const commerceQuery = await pool.query("SELECT logo_url FROM commerces WHERE id = $1", [id]);
+    // 🔹 Buscar el comercio antes de eliminarlo para verificar si tiene logo
+    const findQuery = `SELECT logo_url FROM commerces WHERE id = $1`;
+    const findResult = await pool.query(findQuery, [id]);
 
-    if (commerceQuery.rows.length === 0) {
-      return res.status(404).json({ error: "Comercio no encontrado" });
+    if (findResult.rows.length === 0) {
+      return res.status(404).json({ error: "El comercio no existe o ya fue eliminado." });
     }
 
-    const logoUrl = commerceQuery.rows[0].logo_url;
+    const logoUrl = findResult.rows[0].logo_url;
 
-    // 2️⃣ Eliminar los usuarios asociados al comercio
-    console.log("📌 Eliminando usuarios asociados al comercio...");
-    await pool.query("DELETE FROM users WHERE commerce_id = $1", [id]);
-    console.log("✅ Usuarios eliminados correctamente.");
+    // 🔹 Eliminar el comercio de la base de datos
+    const deleteQuery = `DELETE FROM commerces WHERE id = $1 RETURNING *`;
+    const deleteResult = await pool.query(deleteQuery, [id]);
 
-    // 3️⃣ Si hay imagen en Cloudinary, eliminarla primero
+    if (deleteResult.rows.length === 0) {
+      return res.status(404).json({ error: "El comercio no pudo ser eliminado." });
+    }
+
+    console.log("✅ Comercio eliminado de la base de datos:", deleteResult.rows[0]);
+
+    // 🔹 Si el comercio tenía un logo en Cloudinary, eliminarlo
     if (logoUrl) {
-      const publicId = logoUrl.split('/').slice(-1)[0].split('.')[0]; // Extrae el nombre del archivo sin extensión
-
-      console.log("📌 Eliminando imagen en Cloudinary:", publicId);
-
       try {
-        const cloudinaryResponse = await cloudinary.uploader.destroy(`commerces-logos/${publicId}`);
-        console.log("✅ Respuesta de Cloudinary:", cloudinaryResponse);
+        const publicId = logoUrl.split("/").pop().split(".")[0]; // Extraer el ID de la imagen de la URL
+        await cloudinary.uploader.destroy(`commerces-logos/${publicId}`);
+        console.log("✅ Logo eliminado de Cloudinary:", logoUrl);
       } catch (cloudinaryError) {
-        console.error("❌ Error eliminando imagen en Cloudinary:", cloudinaryError);
+        console.error("❌ Error eliminando el logo en Cloudinary:", cloudinaryError);
       }
     }
 
-    // 4️⃣ Intentar eliminar el comercio de la base de datos
-    const deleteQuery = await pool.query("DELETE FROM commerces WHERE id = $1 RETURNING *", [id]);
-
-    if (deleteQuery.rowCount === 0) {
-      return res.status(404).json({ error: "No se pudo eliminar el comercio" });
-    }
-
-    console.log("✅ Comercio eliminado correctamente.");
-    res.json({ message: "Comercio eliminado correctamente." });
-
+    res.json({ message: "Comercio eliminado correctamente" });
   } catch (error) {
     console.error("❌ Error al eliminar comercio:", error);
     res.status(500).json({ error: "Error en el servidor al eliminar comercio" });
   }
 });
-
     // 🔹 Si el comercio tenía un logo en Cloudinary, eliminarlo
     if (logoUrl) {
       try {
