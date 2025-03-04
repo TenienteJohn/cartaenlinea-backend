@@ -28,8 +28,11 @@ app.use(express.json());
 
 // Configurar CORS para permitir solo desde http://localhost:3000
 const corsOptions = {
-  origin: "http://localhost:3000",
-  optionsSuccessStatus: 200,
+  origin: ["http://localhost:3000", "https://cartaenlinea-67dbc62791d3.herokuapp.com"], // Permitir el frontend local y en producción
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+  allowedHeaders: "Content-Type,Authorization",
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
