@@ -20,7 +20,6 @@
   "description": "",
   "dependencies": {
     "bcrypt": "^5.1.1",
-    "bcryptjs": "^3.0.2",
     "cloudinary": "^2.5.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -31,6 +30,6 @@
     "pg": "^8.13.3"
   },
   "engines": {
-    "node": "20.x"
+    "node": "23.x"
   }
 }
