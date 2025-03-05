@@ -1,7 +1,7 @@
 {
   "name": "cartaenlinea-backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -11,7 +11,7 @@
     "url": "git+https://github.com/TenienteJohn/cartaenlinea-backend.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "jhon dev",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/TenienteJohn/cartaenlinea-backend/issues"
@@ -19,7 +19,7 @@
   "homepage": "https://github.com/TenienteJohn/cartaenlinea-backend#readme",
   "description": "",
   "dependencies": {
-    "bcryptjs": "^5.1.1",
+    "bcryptjs": "^2.4.3",
     "cloudinary": "^2.5.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
