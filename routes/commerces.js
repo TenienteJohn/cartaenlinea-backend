@@ -42,7 +42,18 @@ router.get("/", authMiddleware, async (req, res) => {
  * ✅ Crea un comercio con un OWNER asignado y un subdominio único.
  */
 router.post("/", authMiddleware, async (req, res) => {
-  const { business_name, subdomain, owner_email, owner_password, first_name, last_name, dni, address, phone } = req.body;
+  const {
+    business_name,
+    subdomain,
+    owner_email,
+    owner_password,
+    first_name = null,
+    last_name = null,
+    dni = null,
+    address = null,
+    phone = null,
+    business_category = null
+  } = req.body;
 
   if (!business_name || !subdomain || !owner_email || !owner_password) {
     return res.status(400).json({ error: "Faltan datos obligatorios para crear el comercio." });
@@ -55,12 +66,12 @@ router.post("/", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "El subdominio ya está en uso. Elige otro." });
     }
 
-    // 🔹 Insertar el comercio en la base de datos
+    // 🔹 Insertar el comercio en la base de datos, incluyendo `business_category`
     const commerceQuery = `
-      INSERT INTO commerces (business_name, subdomain, created_at, updated_at)
-      VALUES ($1, $2, NOW(), NOW()) RETURNING id
+      INSERT INTO commerces (business_name, subdomain, business_category, created_at, updated_at)
+      VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id
     `;
-    const commerceValues = [business_name, subdomain];
+    const commerceValues = [business_name, subdomain, business_category];
     const commerceResult = await pool.query(commerceQuery, commerceValues);
     const commerceId = commerceResult.rows[0].id;
 
@@ -120,3 +131,4 @@ router.delete("/:id", authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+
