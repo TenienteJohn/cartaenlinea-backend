@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { Pool } = require("pg");
+const bcrypt = require("bcrypt");
 const cloudinary = require("cloudinary").v2;
 const multer = require("multer");
 const authMiddleware = require("../middlewares/authMiddleware");
@@ -37,6 +38,51 @@ router.get("/", authMiddleware, async (req, res) => {
 });
 
 /**
+ * 🔹 POST /api/commerces
+ * ✅ Crea un comercio con un OWNER asignado y un subdominio único.
+ */
+router.post("/", authMiddleware, async (req, res) => {
+  const { business_name, subdomain, owner_email, owner_password, first_name, last_name, dni, address, phone } = req.body;
+
+  if (!business_name || !subdomain || !owner_email || !owner_password) {
+    return res.status(400).json({ error: "Faltan datos obligatorios para crear el comercio." });
+  }
+
+  try {
+    // 🔹 Verificar si el subdominio ya existe
+    const existingSubdomain = await pool.query("SELECT id FROM commerces WHERE subdomain = $1", [subdomain]);
+    if (existingSubdomain.rows.length > 0) {
+      return res.status(400).json({ error: "El subdominio ya está en uso. Elige otro." });
+    }
+
+    // 🔹 Insertar el comercio en la base de datos
+    const commerceQuery = `
+      INSERT INTO commerces (business_name, subdomain, created_at, updated_at)
+      VALUES ($1, $2, NOW(), NOW()) RETURNING id
+    `;
+    const commerceValues = [business_name, subdomain];
+    const commerceResult = await pool.query(commerceQuery, commerceValues);
+    const commerceId = commerceResult.rows[0].id;
+
+    // 🔹 Cifrar la contraseña del OWNER
+    const hashedPassword = await bcrypt.hash(owner_password, 10);
+
+    // 🔹 Insertar el usuario OWNER asociado al comercio
+    const userQuery = `
+      INSERT INTO users (email, password, role, commerce_id, first_name, last_name, dni, address, phone, created_at)
+      VALUES ($1, $2, 'OWNER', $3, $4, $5, $6, $7, $8, NOW()) RETURNING id
+    `;
+    const userValues = [owner_email, hashedPassword, commerceId, first_name, last_name, dni, address, phone];
+    await pool.query(userQuery, userValues);
+
+    res.json({ message: "Comercio y usuario OWNER creados correctamente." });
+  } catch (error) {
+    console.error("❌ Error creando comercio:", error);
+    res.status(500).json({ error: "Error en el servidor al crear el comercio." });
+  }
+});
+
+/**
  * 🔹 DELETE /api/commerces/:id
  * ✅ Elimina un comercio y su logo en Cloudinary, eliminando primero los usuarios asociados.
  */
@@ -54,103 +100,22 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     const logoUrl = commerceQuery.rows[0].logo_url;
 
     // 🔹 Eliminar los usuarios asociados al comercio
-    console.log("📌 Eliminando usuarios asociados...");
     await pool.query("DELETE FROM users WHERE commerce_id = $1", [id]);
-    console.log("✅ Usuarios eliminados.");
 
     // 🔹 Si hay imagen en Cloudinary, eliminarla
     if (logoUrl) {
-      try {
-        const publicId = logoUrl.split("/").pop().split(".")[0]; // Extraer ID de la imagen
-        console.log("📌 Eliminando logo en Cloudinary:", publicId);
-        await cloudinary.uploader.destroy(`commerces-logos/${publicId}`);
-        console.log("✅ Logo eliminado en Cloudinary.");
-      } catch (cloudinaryError) {
-        console.error("❌ Error eliminando el logo en Cloudinary:", cloudinaryError);
-      }
+      const publicId = logoUrl.split("/").pop().split(".")[0];
+      await cloudinary.uploader.destroy(`commerces-logos/${publicId}`);
     }
 
     // 🔹 Eliminar el comercio de la base de datos
-    const deleteQuery = await pool.query("DELETE FROM commerces WHERE id = $1 RETURNING *", [id]);
+    await pool.query("DELETE FROM commerces WHERE id = $1", [id]);
 
-    if (deleteQuery.rowCount === 0) {
-      return res.status(404).json({ error: "No se pudo eliminar el comercio" });
-    }
-
-    console.log("✅ Comercio eliminado correctamente.");
     res.json({ message: "Comercio eliminado correctamente." });
 
   } catch (error) {
     console.error("❌ Error al eliminar comercio:", error);
     res.status(500).json({ error: "Error en el servidor al eliminar comercio" });
-  }
-});
-
-/**
- * 🔹 PUT /api/commerces/:id/update-logo
- * ✅ Sube una imagen a Cloudinary y actualiza el logo del comercio.
- */
-router.put("/:id/update-logo", authMiddleware, upload.single("image"), async (req, res) => {
-  const { id } = req.params;
-
-  if (!req.file) {
-    return res.status(400).json({ error: "No se recibió ninguna imagen" });
-  }
-
-  try {
-    console.log("📌 Subiendo imagen a Cloudinary...");
-
-    // 🔹 Generar un nombre único basado en el ID del comercio y la fecha
-    const timestamp = Date.now(); // Marca de tiempo actual
-    const publicId = `commerces-logos/comercio_${id}_${timestamp}`;
-
-    // 🔹 Subir la imagen a Cloudinary
-    const uploadResult = await new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder: "commerces-logos",
-          public_id: publicId,
-          use_filename: false,
-          unique_filename: false,
-          overwrite: true,
-          resource_type: "image",
-        },
-        (error, result) => {
-          if (error) {
-            console.error("❌ Error en Cloudinary:", error);
-            reject(error);
-          } else {
-            console.log("✅ Imagen subida con éxito en Cloudinary:", result.secure_url);
-            resolve(result);
-          }
-        }
-      );
-
-      uploadStream.end(req.file.buffer);
-    });
-
-    // 🔹 Verificar que Cloudinary devolvió la URL
-    if (!uploadResult || !uploadResult.secure_url) {
-      return res.status(500).json({ error: "Error subiendo imagen a Cloudinary" });
-    }
-
-    console.log("✅ Imagen subida correctamente:", uploadResult.secure_url);
-
-    // 🔹 Guardar la URL en la base de datos
-    const query = `UPDATE commerces SET logo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *`;
-    const values = [uploadResult.secure_url, id];
-    const dbResult = await pool.query(query, values);
-
-    if (dbResult.rows.length === 0) {
-      return res.status(404).json({ error: "Comercio no encontrado" });
-    }
-
-    console.log("✅ Logo actualizado en la base de datos:", dbResult.rows[0]);
-
-    res.json({ message: "Logo actualizado correctamente", commerce: dbResult.rows[0] });
-  } catch (error) {
-    console.error("❌ Error en la actualización del logo:", error);
-    res.status(500).json({ error: "Error en el servidor" });
   }
 });
 
