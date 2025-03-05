@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { Pool } = require("pg");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const cloudinary = require("cloudinary").v2;
 const multer = require("multer");
 const authMiddleware = require("../middlewares/authMiddleware");
