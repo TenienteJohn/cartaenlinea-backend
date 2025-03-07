@@ -130,5 +130,75 @@ router.delete("/:id", authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * 🔹 PUT /api/commerces/:id/update-logo
+ * ✅ Actualiza el logo de un comercio usando Cloudinary.
+ */
+router.put("/:id/update-logo", authMiddleware, upload.single('logo'), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Verificar si el comercio existe
+    const commerceQuery = await pool.query("SELECT logo_url FROM commerces WHERE id = $1", [id]);
+
+    if (commerceQuery.rows.length === 0) {
+      return res.status(404).json({ error: "El comercio no existe" });
+    }
+
+    // Verificar si se ha subido un archivo
+    if (!req.file) {
+      return res.status(400).json({ error: "No se ha proporcionado un archivo" });
+    }
+
+    // Obtener el logo actual (si existe) para eliminarlo después
+    const oldLogoUrl = commerceQuery.rows[0].logo_url;
+    let oldPublicId = null;
+
+    if (oldLogoUrl) {
+      // Extraer el public_id del logo anterior
+      const urlParts = oldLogoUrl.split('/');
+      const filenameWithExtension = urlParts[urlParts.length - 1];
+      oldPublicId = filenameWithExtension.split('.')[0];
+    }
+
+    // Preparar el archivo para subir a Cloudinary
+    const fileBuffer = req.file.buffer;
+    const fileType = req.file.mimetype;
+
+    // Subir la imagen a Cloudinary con un public_id único
+    const uniqueFilename = `commerce_${id}_${Date.now()}`;
+
+    // Convertir el buffer a base64 para enviarlo a Cloudinary
+    const base64File = `data:${fileType};base64,${fileBuffer.toString('base64')}`;
+
+    // Subir a Cloudinary
+    const uploadResult = await cloudinary.uploader.upload(base64File, {
+      folder: 'commerces-logos',
+      public_id: uniqueFilename,
+      overwrite: true,
+    });
+
+    // Actualizar la URL del logo en la base de datos
+    await pool.query(
+      "UPDATE commerces SET logo_url = $1, updated_at = NOW() WHERE id = $2",
+      [uploadResult.secure_url, id]
+    );
+
+    // Si había un logo anterior, eliminarlo de Cloudinary
+    if (oldPublicId) {
+      await cloudinary.uploader.destroy(`commerces-logos/${oldPublicId}`);
+    }
+
+    res.json({
+      message: "Logo actualizado correctamente",
+      logo_url: uploadResult.secure_url
+    });
+
+  } catch (error) {
+    console.error("❌ Error al actualizar el logo:", error);
+    res.status(500).json({ error: "Error en el servidor al actualizar el logo" });
+  }
+});
+
 module.exports = router;
 
