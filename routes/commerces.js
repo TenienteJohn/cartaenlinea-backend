@@ -323,5 +323,62 @@ router.put("/:id/update-logo", authMiddleware, upload.single('logo'), async (req
   }
 });
 
+/**
+ * 🔹 GET /api/commerces/:id/full-details
+ * ✅ Obtiene información detallada de un comercio y su owner asociado, incluyendo la contraseña.
+ * Requiere verificación de contraseña del superuser por razones de seguridad.
+ */
+router.post("/:id/full-details", authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { superuser_password } = req.body;
+
+  try {
+    // Verificar si el usuario es SUPERUSER
+    if (req.user.role !== 'SUPERUSER') {
+      return res.status(403).json({ error: "No tienes permisos para acceder a esta información confidencial" });
+    }
+
+    // Verificar la contraseña del superuser
+    const userResult = await pool.query('SELECT password FROM users WHERE id = $1 AND role = $2', [req.user.userId, 'SUPERUSER']);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    // Verificar la contraseña del superuser
+    const isPasswordValid = await bcrypt.compare(superuser_password, userResult.rows[0].password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: "Contraseña incorrecta" });
+    }
+
+    // Buscar el comercio
+    const commerceQuery = await pool.query("SELECT * FROM commerces WHERE id = $1", [id]);
+
+    if (commerceQuery.rows.length === 0) {
+      return res.status(404).json({ error: "El comercio no existe" });
+    }
+
+    const commerce = commerceQuery.rows[0];
+
+    // Buscar al owner del comercio y su contraseña
+    const ownerQuery = await pool.query(
+      "SELECT id, email, password, first_name, last_name, dni, address, phone, created_at FROM users WHERE commerce_id = $1 AND role = 'OWNER'",
+      [id]
+    );
+
+    const owner = ownerQuery.rows.length > 0 ? ownerQuery.rows[0] : null;
+
+    // Responder con los detalles completos
+    res.json({
+      commerce,
+      owner
+    });
+
+  } catch (error) {
+    console.error("❌ Error obteniendo detalles completos del comercio:", error);
+    res.status(500).json({ error: "Error en el servidor al obtener detalles del comercio" });
+  }
+});
+
 module.exports = router;
 
