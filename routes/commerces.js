@@ -5,6 +5,7 @@ const bcrypt = require("bcryptjs");
 const cloudinary = require("cloudinary").v2;
 const multer = require("multer");
 const authMiddleware = require("../middlewares/authMiddleware");
+const path = require("path");
 
 // 🔹 Configurar Cloudinary con variables de entorno
 cloudinary.config({
@@ -15,7 +16,23 @@ cloudinary.config({
 
 // 🔹 Configurar almacenamiento en memoria con Multer
 const storage = multer.memoryStorage();
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // Limitar a 5MB
+  },
+  fileFilter: (req, file, cb) => {
+    // Validar que sea una imagen
+    const filetypes = /jpeg|jpg|png|gif|webp/;
+    const mimetype = filetypes.test(file.mimetype);
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    }
+    cb(new Error("Solo se permiten archivos de imagen"));
+  }
+});
 
 // 🔹 Conexión a PostgreSQL
 const pool = new Pool({
@@ -115,8 +132,23 @@ router.delete("/:id", authMiddleware, async (req, res) => {
 
     // 🔹 Si hay imagen en Cloudinary, eliminarla
     if (logoUrl) {
-      const publicId = logoUrl.split("/").pop().split(".")[0];
-      await cloudinary.uploader.destroy(`commerces-logos/${publicId}`);
+      try {
+        // Extraer el public_id correcto de Cloudinary
+        const urlParts = logoUrl.split('/');
+        // Encontrar el índice de 'upload' en la URL
+        const uploadIndex = urlParts.findIndex(part => part === 'upload');
+        if (uploadIndex !== -1 && urlParts.length > uploadIndex + 2) {
+          // El public_id comienza después de 'upload/v{number}/'
+          const publicIdWithExt = urlParts.slice(uploadIndex + 2).join('/');
+          const publicId = publicIdWithExt.substring(0, publicIdWithExt.lastIndexOf('.'));
+
+          console.log("⚙️ Eliminando imagen con public_id:", publicId);
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (cloudinaryError) {
+        console.error("⚠️ Error al eliminar imagen de Cloudinary:", cloudinaryError);
+        // Continuar con la eliminación del comercio aunque falle la eliminación de la imagen
+      }
     }
 
     // 🔹 Eliminar el comercio de la base de datos
@@ -150,44 +182,72 @@ router.put("/:id/update-logo", authMiddleware, upload.single('logo'), async (req
       return res.status(400).json({ error: "No se ha proporcionado un archivo" });
     }
 
+    // Obtener información del comercio para el nombre del archivo
+    const commerceInfo = await pool.query("SELECT business_name FROM commerces WHERE id = $1", [id]);
+    const businessName = commerceInfo.rows[0]?.business_name || `comercio_${id}`;
+
     // Obtener el logo actual (si existe) para eliminarlo después
     const oldLogoUrl = commerceQuery.rows[0].logo_url;
     let oldPublicId = null;
 
+    // Eliminar el logo anterior de Cloudinary si existe
     if (oldLogoUrl) {
-      // Extraer el public_id del logo anterior
-      const urlParts = oldLogoUrl.split('/');
-      const filenameWithExtension = urlParts[urlParts.length - 1];
-      oldPublicId = filenameWithExtension.split('.')[0];
+      try {
+        // Extraer el public_id correcto de Cloudinary
+        const urlParts = oldLogoUrl.split('/');
+        // Encontrar el índice de 'upload' en la URL
+        const uploadIndex = urlParts.findIndex(part => part === 'upload');
+        if (uploadIndex !== -1 && urlParts.length > uploadIndex + 2) {
+          // El public_id comienza después de 'upload/v{number}/'
+          const publicIdWithExt = urlParts.slice(uploadIndex + 2).join('/');
+          const publicId = publicIdWithExt.substring(0, publicIdWithExt.lastIndexOf('.'));
+
+          console.log("⚙️ Eliminando imagen anterior con public_id:", publicId);
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (cloudinaryError) {
+        console.error("⚠️ Error al eliminar imagen anterior de Cloudinary:", cloudinaryError);
+        // Continuar con la subida de la nueva imagen aunque falle la eliminación de la anterior
+      }
     }
 
     // Preparar el archivo para subir a Cloudinary
     const fileBuffer = req.file.buffer;
     const fileType = req.file.mimetype;
 
-    // Subir la imagen a Cloudinary con un public_id único
-    const uniqueFilename = `commerce_${id}_${Date.now()}`;
+    // Sanitizar el nombre del archivo: reemplazar espacios y caracteres especiales
+    const originalFilename = path.parse(req.file.originalname).name;
+    const sanitizedFilename = originalFilename
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_');
+
+    // Crear un nombre único para el archivo manteniendo el nombre original pero sanitizado
+    const uniqueFilename = `${sanitizedFilename}_${Date.now()}`;
 
     // Convertir el buffer a base64 para enviarlo a Cloudinary
     const base64File = `data:${fileType};base64,${fileBuffer.toString('base64')}`;
 
-    // Subir a Cloudinary
+    console.log("⚙️ Subiendo imagen a Cloudinary con filename:", uniqueFilename);
+
+    // Subir a Cloudinary especificando la carpeta como una string, no anidada
     const uploadResult = await cloudinary.uploader.upload(base64File, {
-      folder: 'commerces-logos',
+      folder: 'commerces-logos', // Solo una carpeta, no anidada
       public_id: uniqueFilename,
+      resource_type: 'image',
       overwrite: true,
+      transformation: [
+        { width: 500, height: 500, crop: 'limit' } // Limitar tamaño manteniendo proporción
+      ]
     });
+
+    console.log("✅ Imagen subida a Cloudinary:", uploadResult.secure_url);
 
     // Actualizar la URL del logo en la base de datos
     await pool.query(
       "UPDATE commerces SET logo_url = $1, updated_at = NOW() WHERE id = $2",
       [uploadResult.secure_url, id]
     );
-
-    // Si había un logo anterior, eliminarlo de Cloudinary
-    if (oldPublicId) {
-      await cloudinary.uploader.destroy(`commerces-logos/${oldPublicId}`);
-    }
 
     res.json({
       message: "Logo actualizado correctamente",
@@ -196,7 +256,10 @@ router.put("/:id/update-logo", authMiddleware, upload.single('logo'), async (req
 
   } catch (error) {
     console.error("❌ Error al actualizar el logo:", error);
-    res.status(500).json({ error: "Error en el servidor al actualizar el logo" });
+    res.status(500).json({
+      error: "Error en el servidor al actualizar el logo",
+      details: error.message
+    });
   }
 });
 
