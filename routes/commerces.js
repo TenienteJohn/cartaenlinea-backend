@@ -111,6 +111,66 @@ router.post("/", authMiddleware, async (req, res) => {
 });
 
 /**
+ * 🔹 PUT /api/commerces/:id
+ * ✅ Actualiza los datos de un comercio existente.
+ */
+router.put("/:id", authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { business_name, subdomain, business_category } = req.body;
+
+  try {
+    // Verificar si el comercio existe
+    const commerceExists = await pool.query("SELECT id FROM commerces WHERE id = $1", [id]);
+
+    if (commerceExists.rows.length === 0) {
+      return res.status(404).json({ error: "El comercio no existe" });
+    }
+
+    // Verificar si el nuevo subdominio ya está en uso (si es diferente al actual)
+    if (subdomain) {
+      const existingSubdomain = await pool.query(
+        "SELECT id FROM commerces WHERE subdomain = $1 AND id != $2",
+        [subdomain, id]
+      );
+
+      if (existingSubdomain.rows.length > 0) {
+        return res.status(400).json({ error: "El subdominio ya está en uso. Elige otro." });
+      }
+    }
+
+    // Actualizar el comercio
+    const updateQuery = `
+      UPDATE commerces
+      SET
+        business_name = COALESCE($1, business_name),
+        subdomain = COALESCE($2, subdomain),
+        business_category = $3,
+        updated_at = NOW()
+      WHERE id = $4
+      RETURNING *
+    `;
+
+    const values = [
+      business_name,
+      subdomain,
+      business_category,
+      id
+    ];
+
+    const result = await pool.query(updateQuery, values);
+
+    res.json({
+      message: "Comercio actualizado correctamente",
+      commerce: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("❌ Error actualizando comercio:", error);
+    res.status(500).json({ error: "Error en el servidor al actualizar el comercio" });
+  }
+});
+
+/**
  * 🔹 DELETE /api/commerces/:id
  * ✅ Elimina un comercio y su logo en Cloudinary, eliminando primero los usuarios asociados.
  */

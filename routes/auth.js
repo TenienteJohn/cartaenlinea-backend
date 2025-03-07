@@ -4,6 +4,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const authMiddleware = require('../middlewares/authMiddleware');
 
 // Forzar que la cadena de conexión incluya sslmode=require
 let connectionString = process.env.DATABASE_URL;
@@ -148,6 +149,50 @@ router.post('/login', async (req, res) => {
 
   } catch (error) {
     console.error('Error en /login:', error);
+    return res.status(500).json({ error: 'Error en el servidor', details: error.message });
+  }
+});
+
+/**
+ * 🔹 POST /api/auth/verify-password
+ * Verifica la contraseña del usuario actual sin generar un nuevo token.
+ * Se usa para confirmar operaciones sensibles como eliminar un comercio.
+ */
+router.post('/verify-password', authMiddleware, async (req, res) => {
+  const { password } = req.body;
+  const userId = req.user.userId;
+
+  if (!password) {
+    return res.status(400).json({ error: 'Debes proporcionar la contraseña' });
+  }
+
+  try {
+    // Buscar al usuario por ID
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Verificar que el usuario sea SUPERUSER
+    if (user.role !== 'SUPERUSER') {
+      return res.status(403).json({ error: 'Solo los superusuarios pueden realizar esta operación' });
+    }
+
+    // Comparar la contraseña ingresada con la almacenada
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Contraseña incorrecta' });
+    }
+
+    // Si la contraseña es correcta, devolver OK
+    return res.json({ message: 'Contraseña verificada correctamente' });
+
+  } catch (error) {
+    console.error('Error en /verify-password:', error);
     return res.status(500).json({ error: 'Error en el servidor', details: error.message });
   }
 });
