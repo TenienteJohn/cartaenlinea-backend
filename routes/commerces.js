@@ -1,3 +1,6 @@
+Aquí tienes el código completo de `commerces.js` con la mejora implementada en el endpoint `POST /api/commerces`:
+
+```javascript
 const express = require("express");
 const router = express.Router();
 const { Pool } = require("pg");
@@ -57,6 +60,7 @@ router.get("/", authMiddleware, async (req, res) => {
 /**
  * 🔹 POST /api/commerces
  * ✅ Crea un comercio con un OWNER asignado y un subdominio único.
+ * Con mejoras en la validación y el manejo de errores.
  */
 router.post("/", authMiddleware, async (req, res) => {
   const {
@@ -72,41 +76,125 @@ router.post("/", authMiddleware, async (req, res) => {
     business_category = null
   } = req.body;
 
+  // Validar campos obligatorios
   if (!business_name || !subdomain || !owner_email || !owner_password) {
     return res.status(400).json({ error: "Faltan datos obligatorios para crear el comercio." });
   }
 
+  // Validar formato básico de email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(owner_email)) {
+    return res.status(400).json({
+      error: "El formato del email es inválido.",
+      field: "owner_email"
+    });
+  }
+
+  // Validar longitud mínima de contraseña
+  if (owner_password.length < 6) {
+    return res.status(400).json({
+      error: "La contraseña debe tener al menos 6 caracteres.",
+      field: "owner_password"
+    });
+  }
+
   try {
-    // 🔹 Verificar si el subdominio ya existe
+    // 1. Verificar si el subdominio ya existe
     const existingSubdomain = await pool.query("SELECT id FROM commerces WHERE subdomain = $1", [subdomain]);
     if (existingSubdomain.rows.length > 0) {
-      return res.status(400).json({ error: "El subdominio ya está en uso. Elige otro." });
+      return res.status(400).json({
+        error: "El subdominio ya está en uso. Elige otro.",
+        field: "subdomain"
+      });
     }
 
-    // 🔹 Insertar el comercio en la base de datos, incluyendo `business_category`
-    const commerceQuery = `
-      INSERT INTO commerces (business_name, subdomain, business_category, created_at, updated_at)
-      VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id
-    `;
-    const commerceValues = [business_name, subdomain, business_category];
-    const commerceResult = await pool.query(commerceQuery, commerceValues);
-    const commerceId = commerceResult.rows[0].id;
+    // 2. Verificar si el email ya existe
+    const existingEmail = await pool.query("SELECT id FROM users WHERE email = $1", [owner_email]);
+    if (existingEmail.rows.length > 0) {
+      return res.status(400).json({
+        error: "El email ya está registrado. Utiliza otro email.",
+        field: "owner_email"
+      });
+    }
 
-    // 🔹 Cifrar la contraseña del OWNER
-    const hashedPassword = await bcrypt.hash(owner_password, 10);
+    // 3. Iniciar transacción para asegurar consistencia
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    // 🔹 Insertar el usuario OWNER asociado al comercio
-    const userQuery = `
-      INSERT INTO users (email, password, role, commerce_id, first_name, last_name, dni, address, phone, created_at)
-      VALUES ($1, $2, 'OWNER', $3, $4, $5, $6, $7, $8, NOW()) RETURNING id
-    `;
-    const userValues = [owner_email, hashedPassword, commerceId, first_name, last_name, dni, address, phone];
-    await pool.query(userQuery, userValues);
+      // 4. Insertar el comercio
+      const commerceQuery = `
+        INSERT INTO commerces (business_name, subdomain, business_category, created_at, updated_at)
+        VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id
+      `;
+      const commerceValues = [business_name, subdomain, business_category];
+      const commerceResult = await client.query(commerceQuery, commerceValues);
+      const commerceId = commerceResult.rows[0].id;
 
-    res.json({ message: "Comercio y usuario OWNER creados correctamente." });
+      // 5. Cifrar la contraseña del OWNER
+      const hashedPassword = await bcrypt.hash(owner_password, 10);
+
+      // 6. Insertar el usuario OWNER
+      const userQuery = `
+        INSERT INTO users (email, password, role, commerce_id, first_name, last_name, dni, address, phone, created_at)
+        VALUES ($1, $2, 'OWNER', $3, $4, $5, $6, $7, $8, NOW()) RETURNING id
+      `;
+      const userValues = [owner_email, hashedPassword, commerceId, first_name, last_name, dni, address, phone];
+      const userResult = await client.query(userQuery, userValues);
+      const userId = userResult.rows[0].id;
+
+      // 7. Confirmar transacción
+      await client.query('COMMIT');
+
+      // 8. Responder con éxito
+      res.status(201).json({
+        message: "Comercio y usuario OWNER creados correctamente.",
+        commerce: {
+          id: commerceId,
+          business_name,
+          subdomain,
+          business_category
+        },
+        owner: {
+          id: userId,
+          email: owner_email,
+          role: 'OWNER'
+        }
+      });
+
+    } catch (transactionError) {
+      // Si hay cualquier error, revertir la transacción
+      await client.query('ROLLBACK');
+      throw transactionError;
+    } finally {
+      // Siempre liberar el cliente
+      client.release();
+    }
   } catch (error) {
     console.error("❌ Error creando comercio:", error);
-    res.status(500).json({ error: "Error en el servidor al crear el comercio." });
+
+    // Mejorar los mensajes de error para duplicados
+    if (error.code === '23505') { // Código PostgreSQL para violación de restricción única
+      if (error.constraint === 'users_email_key') {
+        return res.status(400).json({
+          error: "El email del propietario ya está registrado. Utiliza otro email.",
+          field: "owner_email",
+          details: error.detail
+        });
+      } else if (error.constraint === 'commerces_subdomain_key') {
+        return res.status(400).json({
+          error: "El subdominio ya está en uso. Elige otro.",
+          field: "subdomain",
+          details: error.detail
+        });
+      }
+    }
+
+    // Error genérico si no es un caso específico
+    res.status(500).json({
+      error: "Error en el servidor al crear el comercio.",
+      details: error.message
+    });
   }
 });
 
