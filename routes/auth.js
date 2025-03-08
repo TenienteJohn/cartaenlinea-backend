@@ -197,5 +197,40 @@ router.post('/verify-password', authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/auth/check-email/:email
+ * Verifica si un email ya está registrado
+ */
+router.get('/check-email/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    // Validar formato de email básico
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        isAvailable: false,
+        error: 'Formato de email inválido'
+      });
+    }
+
+    // Verificar si el email ya existe en la base de datos
+    const result = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+
+    // Responder con la disponibilidad del email
+    res.json({
+      isAvailable: result.rows.length === 0,
+      exists: result.rows.length > 0
+    });
+
+  } catch (error) {
+    console.error('Error verificando disponibilidad de email:', error);
+    res.status(500).json({
+      isAvailable: false,
+      error: 'Error al verificar disponibilidad del email'
+    });
+  }
+});
+
 // 6. Exportar el router para usarlo en app.js
 module.exports = router;
