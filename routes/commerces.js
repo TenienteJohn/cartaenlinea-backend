@@ -465,5 +465,38 @@ router.post("/:id/full-details", authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * 🔹 GET /api/commerces/my-commerce
+ * Obtiene la información del comercio asociado al usuario autenticado.
+ */
+router.get("/my-commerce", authMiddleware, async (req, res) => {
+  try {
+    // Verificar si el usuario tiene un commerceId asociado
+    const commerceId = req.user.commerceId;
+
+    if (!commerceId) {
+      return res.status(400).json({
+        error: "No se encontró un comercio asociado a este usuario",
+        user: {
+          id: req.user.userId,
+          role: req.user.role
+        }
+      });
+    }
+
+    // Buscar el comercio por ID
+    const result = await pool.query("SELECT * FROM commerces WHERE id = $1", [commerceId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Comercio no encontrado" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("❌ Error obteniendo comercio del usuario:", error);
+    res.status(500).json({ error: "Error al obtener información del comercio" });
+  }
+});
+
 module.exports = router;
 
