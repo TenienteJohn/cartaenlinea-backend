@@ -1,6 +1,3 @@
-Aquí tienes el código completo de `commerces.js` con la mejora implementada en el endpoint `POST /api/commerces`:
-
-```javascript
 const express = require("express");
 const router = express.Router();
 const { Pool } = require("pg");
