@@ -199,9 +199,25 @@ router.post("/", authMiddleware, async (req, res) => {
  * 🔹 PUT /api/commerces/:id
  * ✅ Actualiza los datos de un comercio existente.
  */
+// Actualización en routes/commerces.js - Modificación del endpoint PUT /api/commerces/:id
 router.put("/:id", authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { business_name, subdomain, business_category } = req.body;
+  const {
+    business_name,
+    subdomain,
+    business_category,
+    is_open,
+    delivery_time,
+    delivery_fee,
+    min_order_value,
+    accepts_delivery,
+    accepts_pickup,
+    contact_phone,
+    contact_email,
+    social_instagram,
+    social_facebook,
+    social_whatsapp
+  } = req.body;
 
   try {
     // Verificar si el comercio existe
@@ -223,15 +239,26 @@ router.put("/:id", authMiddleware, async (req, res) => {
       }
     }
 
-    // Actualizar el comercio
+    // Actualizar el comercio con todos los campos
     const updateQuery = `
       UPDATE commerces
       SET
         business_name = COALESCE($1, business_name),
         subdomain = COALESCE($2, subdomain),
         business_category = $3,
+        is_open = $4,
+        delivery_time = $5,
+        delivery_fee = $6,
+        min_order_value = $7,
+        accepts_delivery = $8,
+        accepts_pickup = $9,
+        contact_phone = $10,
+        contact_email = $11,
+        social_instagram = $12,
+        social_facebook = $13,
+        social_whatsapp = $14,
         updated_at = NOW()
-      WHERE id = $4
+      WHERE id = $15
       RETURNING *
     `;
 
@@ -239,6 +266,17 @@ router.put("/:id", authMiddleware, async (req, res) => {
       business_name,
       subdomain,
       business_category,
+      is_open,
+      delivery_time,
+      delivery_fee,
+      min_order_value,
+      accepts_delivery,
+      accepts_pickup,
+      contact_phone,
+      contact_email,
+      social_instagram,
+      social_facebook,
+      social_whatsapp,
       id
     ];
 
@@ -256,30 +294,37 @@ router.put("/:id", authMiddleware, async (req, res) => {
 });
 
 /**
- * 🔹 DELETE /api/commerces/:id
- * ✅ Elimina un comercio y su logo en Cloudinary, eliminando primero los usuarios asociados.
+ * 🔹 PUT /api/commerces/:id/update-banner
+ * ✅ Actualiza el banner de un comercio usando Cloudinary.
  */
-router.delete("/:id", authMiddleware, async (req, res) => {
+router.put("/:id/update-banner", authMiddleware, upload.single('banner'), async (req, res) => {
   const { id } = req.params;
 
   try {
-    // 🔹 Buscar el comercio antes de eliminarlo
-    const commerceQuery = await pool.query("SELECT logo_url FROM commerces WHERE id = $1", [id]);
+    // Verificar si el comercio existe
+    const commerceQuery = await pool.query("SELECT banner_url FROM commerces WHERE id = $1", [id]);
 
     if (commerceQuery.rows.length === 0) {
-      return res.status(404).json({ error: "El comercio no existe o ya fue eliminado." });
+      return res.status(404).json({ error: "El comercio no existe" });
     }
 
-    const logoUrl = commerceQuery.rows[0].logo_url;
+    // Verificar si se ha subido un archivo
+    if (!req.file) {
+      return res.status(400).json({ error: "No se ha proporcionado un archivo" });
+    }
 
-    // 🔹 Eliminar los usuarios asociados al comercio
-    await pool.query("DELETE FROM users WHERE commerce_id = $1", [id]);
+    // Obtener información del comercio para el nombre del archivo
+    const commerceInfo = await pool.query("SELECT business_name FROM commerces WHERE id = $1", [id]);
+    const businessName = commerceInfo.rows[0]?.business_name || `comercio_${id}`;
 
-    // 🔹 Si hay imagen en Cloudinary, eliminarla
-    if (logoUrl) {
+    // Obtener el banner actual (si existe) para eliminarlo después
+    const oldBannerUrl = commerceQuery.rows[0].banner_url;
+
+    // Eliminar el banner anterior de Cloudinary si existe
+    if (oldBannerUrl) {
       try {
         // Extraer el public_id correcto de Cloudinary
-        const urlParts = logoUrl.split('/');
+        const urlParts = oldBannerUrl.split('/');
         // Encontrar el índice de 'upload' en la URL
         const uploadIndex = urlParts.findIndex(part => part === 'upload');
         if (uploadIndex !== -1 && urlParts.length > uploadIndex + 2) {
@@ -287,23 +332,63 @@ router.delete("/:id", authMiddleware, async (req, res) => {
           const publicIdWithExt = urlParts.slice(uploadIndex + 2).join('/');
           const publicId = publicIdWithExt.substring(0, publicIdWithExt.lastIndexOf('.'));
 
-          console.log("⚙️ Eliminando imagen con public_id:", publicId);
+          console.log("⚙️ Eliminando banner anterior con public_id:", publicId);
           await cloudinary.uploader.destroy(publicId);
         }
       } catch (cloudinaryError) {
-        console.error("⚠️ Error al eliminar imagen de Cloudinary:", cloudinaryError);
-        // Continuar con la eliminación del comercio aunque falle la eliminación de la imagen
+        console.error("⚠️ Error al eliminar banner anterior de Cloudinary:", cloudinaryError);
+        // Continuar con la subida de la nueva imagen aunque falle la eliminación de la anterior
       }
     }
 
-    // 🔹 Eliminar el comercio de la base de datos
-    await pool.query("DELETE FROM commerces WHERE id = $1", [id]);
+    // Preparar el archivo para subir a Cloudinary
+    const fileBuffer = req.file.buffer;
+    const fileType = req.file.mimetype;
 
-    res.json({ message: "Comercio eliminado correctamente." });
+    // Sanitizar el nombre del archivo: reemplazar espacios y caracteres especiales
+    const sanitizedName = businessName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_');
+
+    // Crear un nombre único para el archivo
+    const uniqueFilename = `banner_${sanitizedName}_${Date.now()}`;
+
+    // Convertir el buffer a base64 para enviarlo a Cloudinary
+    const base64File = `data:${fileType};base64,${fileBuffer.toString('base64')}`;
+
+    console.log("⚙️ Subiendo banner a Cloudinary con filename:", uniqueFilename);
+
+    // Subir a Cloudinary
+    const uploadResult = await cloudinary.uploader.upload(base64File, {
+      folder: 'commerces-banners',
+      public_id: uniqueFilename,
+      resource_type: 'image',
+      overwrite: true,
+      transformation: [
+        { width: 1200, height: 400, crop: 'fill' } // Redimensionar a 1200x400px
+      ]
+    });
+
+    console.log("✅ Banner subido a Cloudinary:", uploadResult.secure_url);
+
+    // Actualizar la URL del banner en la base de datos
+    await pool.query(
+      "UPDATE commerces SET banner_url = $1, updated_at = NOW() WHERE id = $2",
+      [uploadResult.secure_url, id]
+    );
+
+    res.json({
+      message: "Banner actualizado correctamente",
+      banner_url: uploadResult.secure_url
+    });
 
   } catch (error) {
-    console.error("❌ Error al eliminar comercio:", error);
-    res.status(500).json({ error: "Error en el servidor al eliminar comercio" });
+    console.error("❌ Error al actualizar el banner:", error);
+    res.status(500).json({
+      error: "Error en el servidor al actualizar el banner",
+      details: error.message
+    });
   }
 });
 
