@@ -1,3 +1,5 @@
+// src/app.js
+
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 if (process.env.NODE_ENV !== "production") {
@@ -15,10 +17,11 @@ const { Pool } = require("pg");
 
 // Importar routers y middlewares
 const authRoutes = require("../routes/auth");
-const commerceRoutes = require("../routes/commerces"); // ✅ Ahora maneja subida de imágenes
+const commerceRoutes = require("../routes/commerces");
 const authMiddleware = require("../middlewares/authMiddleware");
 const categoriesRouter = require("../routes/categories");
 const productsRouter = require("../routes/products");
+const publicRoutes = require("../routes/public"); // Importar las rutas públicas
 
 // Inicializar la aplicación Express
 const app = express();
@@ -26,9 +29,21 @@ const app = express();
 // Configurar middlewares
 app.use(express.json());
 
-// Configurar CORS para permitir solo desde http://localhost:3000
+// Configurar CORS para permitir subdominios de localhost y otros orígenes permitidos
 const corsOptions = {
-  origin: ["http://localhost:3000", "https://cartaenlinea-67dbc62791d3.herokuapp.com"], // Permitir el frontend local y en producción
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      "http://localhost:3000",
+      "https://cartaenlinea-67dbc62791d3.herokuapp.com"
+    ];
+
+    // Permitir subdominios de localhost, el origen original, o sin origen (para herramientas como Postman)
+    if (!origin || origin.includes('localhost:3000') || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('No permitido por CORS'));
+    }
+  },
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
   allowedHeaders: "Content-Type,Authorization",
   credentials: true,
@@ -72,9 +87,10 @@ app.get("/", (req, res) => {
 
 // ✅ Rutas organizadas
 app.use("/api/auth", authRoutes);
-app.use("/api/commerces", authMiddleware, commerceRoutes); // ✅ Maneja subida de imágenes
+app.use("/api/commerces", authMiddleware, commerceRoutes);
 app.use("/api/categories", authMiddleware, categoriesRouter);
 app.use("/api/products", authMiddleware, productsRouter);
+app.use("/api/public", publicRoutes); // Registrar las rutas públicas
 
 // Listar endpoints disponibles en la API
 const expressListEndpoints = require("express-list-endpoints");
@@ -86,7 +102,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 });
-
 
 
 
