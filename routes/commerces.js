@@ -195,10 +195,6 @@ router.post("/", authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * 🔹 PUT /api/commerces/:id
- * ✅ Actualiza los datos de un comercio existente.
- */
 // Actualización en routes/commerces.js - Modificación del endpoint PUT /api/commerces/:id
 router.put("/:id", authMiddleware, async (req, res) => {
   const { id } = req.params;
@@ -569,8 +565,17 @@ router.get("/my-commerce", authMiddleware, async (req, res) => {
       });
     }
 
-    // Buscar el comercio por ID
-    const result = await pool.query("SELECT * FROM commerces WHERE id = $1", [commerceId]);
+    // Buscar el comercio por ID con todos los campos
+    const query = `
+      SELECT
+        id, business_name, business_category, subdomain, logo_url, banner_url,
+        is_open, delivery_time, delivery_fee, min_order_value, accepts_delivery, accepts_pickup,
+        contact_phone, contact_email, social_instagram, social_facebook, social_whatsapp,
+        created_at, updated_at
+      FROM commerces
+      WHERE id = $1
+    `;
+    const result = await pool.query(query, [commerceId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Comercio no encontrado" });

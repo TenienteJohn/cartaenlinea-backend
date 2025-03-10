@@ -19,8 +19,15 @@ router.get('/:subdomain', async (req, res) => {
 
     console.log(`API: Obteniendo datos para subdominio: ${subdomain}`);
 
-    // Obtener información del comercio
-    const commerceQuery = 'SELECT * FROM commerces WHERE subdomain = $1';
+    // Obtener información del comercio con todos los campos
+    const commerceQuery = `
+      SELECT
+        id, business_name, business_category, subdomain, logo_url, banner_url,
+        is_open, delivery_time, delivery_fee, min_order_value, accepts_delivery, accepts_pickup,
+        contact_phone, contact_email, social_instagram, social_facebook, social_whatsapp
+      FROM commerces
+      WHERE subdomain = $1
+    `;
     const commerceResult = await pool.query(commerceQuery, [subdomain]);
 
     if (commerceResult.rows.length === 0) {
