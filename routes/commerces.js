@@ -289,6 +289,51 @@ router.put("/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// funcion para borrar comercios
+router.delete("/:id", authMiddleware, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Iniciar una transacción para garantizar la integridad de los datos
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Eliminar productos asociados al comercio
+      await client.query("DELETE FROM products WHERE commerce_id = $1", [id]);
+
+      // Eliminar categorías asociadas al comercio
+      await client.query("DELETE FROM categories WHERE commerce_id = $1", [id]);
+
+      // Eliminar usuarios asociados al comercio
+      await client.query("DELETE FROM users WHERE commerce_id = $1", [id]);
+
+      // Finalmente, eliminar el comercio
+      const result = await client.query("DELETE FROM commerces WHERE id = $1 RETURNING *", [id]);
+
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: "Comercio no encontrado" });
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        message: "Comercio eliminado correctamente",
+        commerce: result.rows[0]
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error("Error al eliminar comercio:", error);
+    res.status(500).json({ error: "Error en el servidor al eliminar el comercio" });
+  }
+});
+
 /**
  * 🔹 PUT /api/commerces/:id/update-banner
  * ✅ Actualiza el banner de un comercio usando Cloudinary.
