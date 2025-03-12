@@ -29,19 +29,38 @@ const app = express();
 // Configurar middlewares
 app.use(express.json());
 
-// Configurar CORS para permitir subdominios de localhost y otros orígenes permitidos
-const corsOptions = {
+// Configuración de CORS para rutas privadas
+const privateCorsOptions = {
   origin: function(origin, callback) {
     const allowedOrigins = [
       "http://localhost:3000",
       "https://cartaenlinea-67dbc62791d3.herokuapp.com",
-      "https://my-next-frontend-2uere1z2x-matias-jodars-projects.vercel.app", // Añadido frontend de Vercel
+      "https://my-next-frontend-2uere1z2x-matias-jodars-projects.vercel.app", // Frontend web
+      /^https:\/\/.*\.vercel\.app$/, // Cualquier subdominio de Vercel
     ];
 
-    // Permitir subdominios de localhost, el origen original, o sin origen (para herramientas como Postman)
+    // Función para validar IPs
+    const isValidIP = (ip) => {
+      // Permite IPs privadas (para desarrollo y redes locales)
+      const privateIPPatterns = [
+        /^10\.\d+\.\d+\.\d+$/, // Redes privadas clase A
+        /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/, // Redes privadas clase B
+        /^192\.168\.\d+\.\d+$/, // Redes privadas clase C
+        /^localhost$|^127\.0\.0\.1$/, // localhost
+      ];
+
+      return privateIPPatterns.some(pattern => pattern.test(ip));
+    };
+
+    // Verificación de origen
     if (!origin ||
         origin.includes('localhost:3000') ||
-        allowedOrigins.includes(origin)) {
+        allowedOrigins.some(allowed =>
+          typeof allowed === 'string' ? allowed === origin : allowed.test(origin)
+        ) ||
+        // Permitir conexiones desde IPs privadas
+        (origin && isValidIP(new URL(origin).hostname))
+    ) {
       callback(null, true);
     } else {
       console.log('Intento de CORS no permitido:', origin); // Log para depuración
@@ -53,7 +72,27 @@ const corsOptions = {
   credentials: true,
   optionsSuccessStatus: 200
 };
-app.use(cors(corsOptions));
+
+// Configuración de CORS para rutas públicas (completamente abierta)
+const publicCorsOptions = {
+  origin: '*', // Permite todos los orígenes para rutas públicas
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+  allowedHeaders: "Content-Type,Authorization",
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+// Middleware para manejar CORS de manera diferente para rutas públicas y privadas
+app.use((req, res, next) => {
+  // Si es una ruta pública, usa CORS abierto
+  if (req.path.startsWith('/api/public')) {
+    cors(publicCorsOptions)(req, res, next);
+  }
+  // Para otras rutas, usa CORS restringido
+  else {
+    cors(privateCorsOptions)(req, res, next);
+  }
+});
 
 // Forzar que la cadena de conexión incluya sslmode=require
 let connectionString = process.env.DATABASE_URL;
