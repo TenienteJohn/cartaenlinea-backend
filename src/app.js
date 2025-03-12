@@ -34,13 +34,17 @@ const corsOptions = {
   origin: function(origin, callback) {
     const allowedOrigins = [
       "http://localhost:3000",
-      "https://cartaenlinea-67dbc62791d3.herokuapp.com"
+      "https://cartaenlinea-67dbc62791d3.herokuapp.com",
+      "https://my-next-frontend-2uere1z2x-matias-jodars-projects.vercel.app", // Añadido frontend de Vercel
     ];
 
     // Permitir subdominios de localhost, el origen original, o sin origen (para herramientas como Postman)
-    if (!origin || origin.includes('localhost:3000') || allowedOrigins.includes(origin)) {
+    if (!origin ||
+        origin.includes('localhost:3000') ||
+        allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log('Intento de CORS no permitido:', origin); // Log para depuración
       callback(new Error('No permitido por CORS'));
     }
   },
@@ -102,6 +106,3 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 });
-
-
-
