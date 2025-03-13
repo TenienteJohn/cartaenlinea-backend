@@ -37,6 +37,8 @@ const privateCorsOptions = {
       "https://cartaenlinea-67dbc62791d3.herokuapp.com",
       "https://my-next-frontend-2uere1z2x-matias-jodars-projects.vercel.app", // Frontend web
       /^https:\/\/.*\.vercel\.app$/, // Cualquier subdominio de Vercel
+      "https://menunube.online",
+      "https://www.menunube.online"
     ];
 
     // Función para validar IPs
