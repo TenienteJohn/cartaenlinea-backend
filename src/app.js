@@ -49,6 +49,7 @@ const privateCorsOptions = {
         /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/, // Redes privadas clase B
         /^192\.168\.\d+\.\d+$/, // Redes privadas clase C
         /^localhost$|^127\.0\.0\.1$/, // localhost
+        /^https:\/\/.*\.menunube\.online$/ // Añadir esta línea
       ];
 
       return privateIPPatterns.some(pattern => pattern.test(ip));
