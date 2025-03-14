@@ -29,44 +29,59 @@ const app = express();
 // Configurar middlewares
 app.use(express.json());
 
-// Configuración de CORS para rutas privadas
 const privateCorsOptions = {
   origin: function(origin, callback) {
-    const allowedOrigins = [
-      "http://localhost:3000",
-      "https://cartaenlinea-67dbc62791d3.herokuapp.com",
-      "https://my-next-frontend-2uere1z2x-matias-jodars-projects.vercel.app", // Frontend web
-      /^https:\/\/.*\.vercel\.app$/, // Cualquier subdominio de Vercel
-      "https://menunube.online",
-      "https://www.menunube.online"
-    ];
+    // Función para validar si un origen es permitido
+    const isOriginAllowed = (testOrigin) => {
+      try {
+        const url = new URL(testOrigin);
+        const hostname = url.hostname;
 
-    // Función para validar IPs
-    const isValidIP = (ip) => {
-      // Permite IPs privadas (para desarrollo y redes locales)
-      const privateIPPatterns = [
-        /^10\.\d+\.\d+\.\d+$/, // Redes privadas clase A
-        /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/, // Redes privadas clase B
-        /^192\.168\.\d+\.\d+$/, // Redes privadas clase C
-        /^localhost$|^127\.0\.0\.1$/, // localhost
-        /^https:\/\/.*\.menunube\.online$/ // Añadir esta línea
-      ];
+        // Lista de dominios base permitidos
+        const allowedDomains = [
+          'localhost',
+          'cartaenlinea.herokuapp.com',
+          'vercel.app',
+          'menunube.online'
+        ];
 
-      return privateIPPatterns.some(pattern => pattern.test(ip));
+        // Dominios exactos permitidos
+        const exactDomains = [
+          'http://localhost:3000',
+          'https://cartaenlinea-67dbc62791d3.herokuapp.com',
+          'https://menunube.online',
+          'https://www.menunube.online'
+        ];
+
+        // Verificar dominios exactos
+        if (exactDomains.includes(testOrigin)) {
+          return true;
+        }
+
+        // Verificar subdominios
+        const domainParts = hostname.split('.');
+        if (domainParts.length >= 3) {
+          const baseDomain = `${domainParts[domainParts.length - 2]}.${domainParts[domainParts.length - 1]}`;
+
+          // Permitir subdominios de dominios específicos
+          if (baseDomain === 'menunube.online' ||
+              baseDomain === 'vercel.app') {
+            return true;
+          }
+        }
+
+        return false;
+      } catch (error) {
+        console.error('Error validando origen:', error);
+        return false;
+      }
     };
 
-    // Verificación de origen
-    if (!origin ||
-        origin.includes('localhost:3000') ||
-        allowedOrigins.some(allowed =>
-          typeof allowed === 'string' ? allowed === origin : allowed.test(origin)
-        ) ||
-        // Permitir conexiones desde IPs privadas
-        (origin && isValidIP(new URL(origin).hostname))
-    ) {
+    // Verificación final
+    if (!origin || isOriginAllowed(origin)) {
       callback(null, true);
     } else {
-      console.log('Intento de CORS no permitido:', origin); // Log para depuración
+      console.log('Intento de CORS no permitido:', origin);
       callback(new Error('No permitido por CORS'));
     }
   },
