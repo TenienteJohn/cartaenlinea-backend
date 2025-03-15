@@ -38,9 +38,9 @@ router.get('/:subdomain', async (req, res) => {
     const commerce = commerceResult.rows[0];
     console.log(`API: Comercio encontrado: ${commerce.business_name} (ID: ${commerce.id})`);
 
-    // Obtener categorías y productos
+    // Obtener categorías y productos, ordenados por la columna 'position'
     const categoriesQuery = `
-      SELECT c.id, c.name,
+      SELECT c.id, c.name, c.position,
         json_agg(json_build_object(
           'id', p.id,
           'name', p.name,
@@ -51,7 +51,8 @@ router.get('/:subdomain', async (req, res) => {
       FROM categories c
       LEFT JOIN products p ON c.id = p.category_id
       WHERE c.commerce_id = $1
-      GROUP BY c.id, c.name
+      GROUP BY c.id, c.name, c.position
+      ORDER BY c.position, c.id
     `;
 
     const categoriesResult = await pool.query(categoriesQuery, [commerce.id]);
