@@ -1,7 +1,8 @@
-// routes/public.js
+// routes/product_options.js
 const express = require('express');
 const router = express.Router();
 const { Pool } = require('pg');
+const authMiddleware = require('../middlewares/authMiddleware');
 
 // Inicializar el pool directamente en lugar de importarlo
 const pool = new Pool({
@@ -12,93 +13,357 @@ const pool = new Pool({
   },
 });
 
-// Endpoint público para obtener la carta de un comercio por subdominio
-router.get('/:subdomain', async (req, res) => {
+/**
+ * GET /api/products/:productId/options
+ * Obtener todas las opciones de un producto con sus items
+ */
+router.get('/:productId/options', authMiddleware, async (req, res) => {
   try {
-    const { subdomain } = req.params;
+    const { productId } = req.params;
+    const commerceId = req.user.commerceId;
 
-    console.log(`API: Obteniendo datos para subdominio: ${subdomain}`);
-
-    // Obtener información del comercio con todos los campos
-    const commerceQuery = `
-      SELECT
-        id, business_name, business_category, subdomain, logo_url, banner_url,
-        is_open, delivery_time, delivery_fee, min_order_value, accepts_delivery, accepts_pickup,
-        contact_phone, contact_email, social_instagram, social_facebook, social_whatsapp
-      FROM commerces
-      WHERE subdomain = $1
+    // Verificar que el producto pertenezca al comercio del usuario
+    const productQuery = `
+      SELECT id FROM products
+      WHERE id = $1 AND commerce_id = $2
     `;
-    const commerceResult = await pool.query(commerceQuery, [subdomain]);
+    const productResult = await pool.query(productQuery, [productId, commerceId]);
 
-    if (commerceResult.rows.length === 0) {
-      console.log(`API: Comercio no encontrado para subdominio: ${subdomain}`);
-      return res.status(404).json({ error: 'Comercio no encontrado' });
+    if (productResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Producto no encontrado o no tienes permisos para acceder a él' });
     }
 
-    const commerce = commerceResult.rows[0];
-    console.log(`API: Comercio encontrado: ${commerce.business_name} (ID: ${commerce.id})`);
-
-    // Obtener categorías y productos, ordenados por la columna 'position'
-    const categoriesQuery = `
-      SELECT c.id, c.name, c.position,
-        json_agg(
-          json_build_object(
-            'id', p.id,
-            'name', p.name,
-            'image_url', p.image_url,
-            'description', p.description,
-            'price', p.price,
-            'options', (
-              SELECT json_agg(
-                json_build_object(
-                  'id', po.id,
-                  'name', po.name,
-                  'required', po.required,
-                  'multiple', po.multiple,
-                  'max_selections', po.max_selections,
-                  'items', (
-                    SELECT json_agg(
-                      json_build_object(
-                        'id', oi.id,
-                        'name', oi.name,
-                        'price_addition', oi.price_addition,
-                        'available', oi.available,
-                        'image_url', oi.image_url
-                      )
-                    )
-                    FROM option_items oi
-                    WHERE oi.option_id = po.id
-                  )
-                )
-              )
-              FROM product_options po
-              WHERE po.product_id = p.id
-            )
-          )
-        ) FILTER (WHERE p.id IS NOT NULL) AS products
-      FROM categories c
-      LEFT JOIN products p ON c.id = p.category_id
-      WHERE c.commerce_id = $1
-      GROUP BY c.id, c.name, c.position
-      ORDER BY c.position, c.id
+    // Obtener las opciones del producto
+    const optionsQuery = `
+      SELECT po.* FROM product_options po
+      JOIN products p ON po.product_id = p.id
+      WHERE po.product_id = $1 AND p.commerce_id = $2
+      ORDER BY po.id
     `;
+    const optionsResult = await pool.query(optionsQuery, [productId, commerceId]);
+    const options = optionsResult.rows;
 
-    const categoriesResult = await pool.query(categoriesQuery, [commerce.id]);
-    console.log(`API: Se encontraron ${categoriesResult.rows.length} categorías`);
+    // Para cada opción, obtener sus items
+    for (const option of options) {
+      const itemsQuery = `
+        SELECT * FROM option_items
+        WHERE option_id = $1
+        ORDER BY id
+      `;
+      const itemsResult = await pool.query(itemsQuery, [option.id]);
+      option.items = itemsResult.rows;
+    }
 
-    // Para cada categoría, si products es null, convertirlo en array vacío
-    const categories = categoriesResult.rows.map(category => ({
-      ...category,
-      products: category.products || []
-    }));
+    res.json(options);
+  } catch (error) {
+    console.error('Error al obtener opciones del producto:', error);
+    res.status(500).json({ error: 'Error al obtener las opciones del producto' });
+  }
+});
+
+/**
+ * POST /api/products/:productId/options
+ * Crear una nueva opción para un producto
+ */
+router.post('/:productId/options', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const { productId } = req.params;
+    const { name, required, multiple, max_selections, items } = req.body;
+    const commerceId = req.user.commerceId;
+
+    // Verificar que el producto pertenezca al comercio del usuario
+    const productQuery = `
+      SELECT id FROM products
+      WHERE id = $1 AND commerce_id = $2
+    `;
+    const productResult = await client.query(productQuery, [productId, commerceId]);
+
+    if (productResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Producto no encontrado o no tienes permisos para modificarlo' });
+    }
+
+    // Crear la nueva opción
+    const optionQuery = `
+      INSERT INTO product_options (product_id, name, required, multiple, max_selections, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *
+    `;
+    const optionValues = [productId, name, required || false, multiple || false, max_selections || null];
+    const optionResult = await client.query(optionQuery, optionValues);
+
+    const option = optionResult.rows[0];
+    option.items = [];
+
+    // Si hay items, insertarlos
+    if (items && items.length > 0) {
+      for (const item of items) {
+        const itemQuery = `
+          INSERT INTO option_items (option_id, name, price_addition, available, image_url, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          RETURNING *
+        `;
+        const itemValues = [
+          option.id,
+          item.name,
+          item.price_addition || 0,
+          item.available !== false, // Por defecto disponible
+          item.image_url || null
+        ];
+
+        const itemResult = await client.query(itemQuery, itemValues);
+        option.items.push(itemResult.rows[0]);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json(option);
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error al agregar opción al producto:', error);
+    res.status(500).json({ error: 'Error al agregar la opción al producto' });
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * PUT /api/options/:optionId
+ * Actualizar una opción existente
+ */
+router.put('/options/:optionId', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const { optionId } = req.params;
+    const { name, required, multiple, max_selections, items } = req.body;
+    const commerceId = req.user.commerceId;
+
+    // Verificar que la opción exista y pertenezca a un producto del comercio del usuario
+    const optionQuery = `
+      SELECT po.* FROM product_options po
+      JOIN products p ON po.product_id = p.id
+      WHERE po.id = $1 AND p.commerce_id = $2
+    `;
+    const optionResult = await client.query(optionQuery, [optionId, commerceId]);
+
+    if (optionResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Opción no encontrada o no tienes permisos para modificarla' });
+    }
+
+    // Actualizar la opción
+    const updateQuery = `
+      UPDATE product_options
+      SET name = $1, required = $2, multiple = $3, max_selections = $4, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $5
+      RETURNING *
+    `;
+    const updateValues = [name, required, multiple, max_selections, optionId];
+    const updateResult = await client.query(updateQuery, updateValues);
+
+    const option = updateResult.rows[0];
+
+    // Si se enviaron items, actualizar
+    if (items) {
+      // Eliminar items existentes
+      await client.query('DELETE FROM option_items WHERE option_id = $1', [optionId]);
+
+      // Insertar nuevos items
+      option.items = [];
+      for (const item of items) {
+        const itemQuery = `
+          INSERT INTO option_items (option_id, name, price_addition, available, image_url, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          RETURNING *
+        `;
+        const itemValues = [
+          option.id,
+          item.name,
+          item.price_addition || 0,
+          item.available !== false,
+          item.image_url || null
+        ];
+
+        const itemResult = await client.query(itemQuery, itemValues);
+        option.items.push(itemResult.rows[0]);
+      }
+    } else {
+      // Si no se enviaron items, obtener los existentes
+      const itemsQuery = 'SELECT * FROM option_items WHERE option_id = $1';
+      const itemsResult = await client.query(itemsQuery, [optionId]);
+      option.items = itemsResult.rows;
+    }
+
+    await client.query('COMMIT');
+    res.json(option);
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error al actualizar opción:', error);
+    res.status(500).json({ error: 'Error al actualizar la opción' });
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * DELETE /api/options/:optionId
+ * Eliminar una opción
+ */
+router.delete('/options/:optionId', authMiddleware, async (req, res) => {
+  try {
+    const { optionId } = req.params;
+    const commerceId = req.user.commerceId;
+
+    // Verificar que la opción exista y pertenezca a un producto del comercio del usuario
+    const optionQuery = `
+      SELECT po.* FROM product_options po
+      JOIN products p ON po.product_id = p.id
+      WHERE po.id = $1 AND p.commerce_id = $2
+    `;
+    const optionResult = await pool.query(optionQuery, [optionId, commerceId]);
+
+    if (optionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Opción no encontrada o no tienes permisos para eliminarla' });
+    }
+
+    // Eliminar la opción (los items se eliminarán automáticamente por la restricción ON DELETE CASCADE)
+    const deleteQuery = 'DELETE FROM product_options WHERE id = $1 RETURNING *';
+    const deleteResult = await pool.query(deleteQuery, [optionId]);
 
     res.json({
-      commerce,
-      categories,
+      message: 'Opción eliminada correctamente',
+      option: deleteResult.rows[0]
     });
+
   } catch (error) {
-    console.error('API: Error al obtener la carta:', error);
-    res.status(500).json({ error: 'Error en el servidor' });
+    console.error('Error al eliminar opción:', error);
+    res.status(500).json({ error: 'Error al eliminar la opción' });
+  }
+});
+
+/**
+ * POST /api/options/:optionId/items
+ * Agregar un nuevo item a una opción
+ */
+router.post('/options/:optionId/items', authMiddleware, async (req, res) => {
+  try {
+    const { optionId } = req.params;
+    const { name, price_addition, available, image_url } = req.body;
+    const commerceId = req.user.commerceId;
+
+    // Verificar que la opción exista y pertenezca a un producto del comercio del usuario
+    const optionQuery = `
+      SELECT po.* FROM product_options po
+      JOIN products p ON po.product_id = p.id
+      WHERE po.id = $1 AND p.commerce_id = $2
+    `;
+    const optionResult = await pool.query(optionQuery, [optionId, commerceId]);
+
+    if (optionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Opción no encontrada o no tienes permisos para modificarla' });
+    }
+
+    // Insertar el nuevo item
+    const itemQuery = `
+      INSERT INTO option_items (option_id, name, price_addition, available, image_url, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *
+    `;
+    const itemValues = [optionId, name, price_addition || 0, available !== false, image_url || null];
+
+    const result = await pool.query(itemQuery, itemValues);
+    res.status(201).json(result.rows[0]);
+
+  } catch (error) {
+    console.error('Error al agregar item a la opción:', error);
+    res.status(500).json({ error: 'Error al agregar el item a la opción' });
+  }
+});
+
+/**
+ * PUT /api/items/:itemId
+ * Actualizar un item existente
+ */
+router.put('/items/:itemId', authMiddleware, async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const { name, price_addition, available, image_url } = req.body;
+    const commerceId = req.user.commerceId;
+
+    // Verificar que el item exista y pertenezca a una opción de un producto del comercio del usuario
+    const itemQuery = `
+      SELECT i.* FROM option_items i
+      JOIN product_options po ON i.option_id = po.id
+      JOIN products p ON po.product_id = p.id
+      WHERE i.id = $1 AND p.commerce_id = $2
+    `;
+    const itemResult = await pool.query(itemQuery, [itemId, commerceId]);
+
+    if (itemResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Item no encontrado o no tienes permisos para modificarlo' });
+    }
+
+    // Actualizar el item
+    const updateQuery = `
+      UPDATE option_items
+      SET name = $1, price_addition = $2, available = $3, image_url = $4, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $5
+      RETURNING *
+    `;
+    const updateValues = [name, price_addition, available, image_url, itemId];
+
+    const result = await pool.query(updateQuery, updateValues);
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error('Error al actualizar item:', error);
+    res.status(500).json({ error: 'Error al actualizar el item' });
+  }
+});
+
+/**
+ * DELETE /api/items/:itemId
+ * Eliminar un item
+ */
+router.delete('/items/:itemId', authMiddleware, async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const commerceId = req.user.commerceId;
+
+    // Verificar que el item exista y pertenezca a una opción de un producto del comercio del usuario
+    const itemQuery = `
+      SELECT i.* FROM option_items i
+      JOIN product_options po ON i.option_id = po.id
+      JOIN products p ON po.product_id = p.id
+      WHERE i.id = $1 AND p.commerce_id = $2
+    `;
+    const itemResult = await pool.query(itemQuery, [itemId, commerceId]);
+
+    if (itemResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Item no encontrado o no tienes permisos para eliminarlo' });
+    }
+
+    // Eliminar el item
+    const deleteQuery = 'DELETE FROM option_items WHERE id = $1 RETURNING *';
+    const deleteResult = await pool.query(deleteQuery, [itemId]);
+
+    res.json({
+      message: 'Item eliminado correctamente',
+      item: deleteResult.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Error al eliminar item:', error);
+    res.status(500).json({ error: 'Error al eliminar el item' });
   }
 });
 

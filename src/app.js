@@ -22,7 +22,7 @@ const authMiddleware = require("../middlewares/authMiddleware");
 const categoriesRouter = require("../routes/categories");
 const productsRouter = require("../routes/products");
 const publicRoutes = require("../routes/public"); // Importar las rutas públicas
-const productOptionsRouter = require("./routes/product_options");
+const productOptionsRouter = require("../routes/product_options");
 
 // Inicializar la aplicación Express
 const app = express();
