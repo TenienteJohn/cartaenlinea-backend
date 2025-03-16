@@ -39,15 +39,46 @@ router.get('/:subdomain', async (req, res) => {
     console.log(`API: Comercio encontrado: ${commerce.business_name} (ID: ${commerce.id})`);
 
     // Obtener categorías y productos, ordenados por la columna 'position'
+    // Busca en routes/public.js la consulta que obtiene las categorías y productos
+    // Reemplaza esa consulta por esta:
+
     const categoriesQuery = `
       SELECT c.id, c.name, c.position,
-        json_agg(json_build_object(
-          'id', p.id,
-          'name', p.name,
-          'image_url', p.image_url,
-          'description', p.description,
-          'price', p.price
-        )) FILTER (WHERE p.id IS NOT NULL) AS products
+        json_agg(
+          json_build_object(
+            'id', p.id,
+            'name', p.name,
+            'image_url', p.image_url,
+            'description', p.description,
+            'price', p.price,
+            'options', (
+              SELECT json_agg(
+                json_build_object(
+                  'id', po.id,
+                  'name', po.name,
+                  'required', po.required,
+                  'multiple', po.multiple,
+                  'max_selections', po.max_selections,
+                  'items', (
+                    SELECT json_agg(
+                      json_build_object(
+                        'id', oi.id,
+                        'name', oi.name,
+                        'price_addition', oi.price_addition,
+                        'available', oi.available,
+                        'image_url', oi.image_url
+                      )
+                    )
+                    FROM option_items oi
+                    WHERE oi.option_id = po.id AND oi.available = true
+                  )
+                )
+              )
+              FROM product_options po
+              WHERE po.product_id = p.id
+            )
+          )
+        ) FILTER (WHERE p.id IS NOT NULL) AS products
       FROM categories c
       LEFT JOIN products p ON c.id = p.category_id
       WHERE c.commerce_id = $1
