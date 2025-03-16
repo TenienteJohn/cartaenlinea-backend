@@ -22,7 +22,6 @@ const authMiddleware = require("../middlewares/authMiddleware");
 const categoriesRouter = require("../routes/categories");
 const productsRouter = require("../routes/products");
 const publicRoutes = require("../routes/public"); // Importar las rutas públicas
-const productOptionsRouter = require("./routes/product_options");
 
 // Inicializar la aplicación Express
 const app = express();
@@ -152,7 +151,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/commerces", authMiddleware, commerceRoutes);
 app.use("/api/categories", authMiddleware, categoriesRouter);
 app.use("/api/products", authMiddleware, productsRouter);
-app.use("/api/products", productOptionsRouter); // Añadir esta línea
 app.use("/api/public", publicRoutes); // Registrar las rutas públicas
 
 // Listar endpoints disponibles en la API
