@@ -35,21 +35,13 @@ const upload = multer({
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    require: true,
-    rejectUnauthorized: false,
-  },
 });
 
 // Endpoint para crear un producto
 router.post('/', async (req, res) => {
-  const client = await pool.connect();
-
   try {
-    await client.query('BEGIN');
-
     // Datos del body
-    const { name, description, price, category_id, options } = req.body;
+    const { name, description, price, category_id } = req.body;
 
     // Validar datos requeridos
     if (!name || price === undefined || !category_id) {
@@ -67,70 +59,16 @@ router.post('/', async (req, res) => {
     `;
 
     const values = [name, description || '', price, category_id, commerceId];
-    const result = await client.query(query, values);
-
-    const product = result.rows[0];
-    product.options = [];
-
-    // Si hay opciones, insertarlas
-    if (options && options.length > 0) {
-      for (const option of options) {
-        // Insertar la opción
-        const optionQuery = `
-          INSERT INTO product_options (product_id, name, required, multiple, max_selections)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING *
-        `;
-        const optionValues = [
-          product.id,
-          option.name,
-          option.required || false,
-          option.multiple || false,
-          option.max_selections || null
-        ];
-
-        const optionResult = await client.query(optionQuery, optionValues);
-        const createdOption = optionResult.rows[0];
-        createdOption.items = [];
-
-        // Si la opción tiene ítems, insertarlos
-        if (option.items && option.items.length > 0) {
-          for (const item of option.items) {
-            const itemQuery = `
-              INSERT INTO option_items (option_id, name, price_addition, available, image_url)
-              VALUES ($1, $2, $3, $4, $5)
-              RETURNING *
-            `;
-            const itemValues = [
-              createdOption.id,
-              item.name,
-              item.price_addition || 0,
-              item.available !== false, // Por defecto disponible
-              item.image_url || null
-            ];
-
-            const itemResult = await client.query(itemQuery, itemValues);
-            createdOption.items.push(itemResult.rows[0]);
-          }
-        }
-
-        product.options.push(createdOption);
-      }
-    }
-
-    await client.query('COMMIT');
+    const result = await pool.query(query, values);
 
     // Devolver el producto creado
     res.status(201).json({
       message: 'Producto creado exitosamente',
-      product: product
+      product: result.rows[0]
     });
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('Error en /api/products [POST]', error);
     res.status(500).json({ error: 'Error al crear producto' });
-  } finally {
-    client.release();
   }
 });
 
@@ -165,43 +103,18 @@ router.get('/:id', async (req, res) => {
     const commerceId = req.user.commerceId;
 
     // Consulta SQL para obtener el producto específico
-    const productQuery = `
+    const query = `
       SELECT * FROM products
       WHERE id = $1 AND commerce_id = $2
     `;
 
-    const productResult = await pool.query(productQuery, [productId, commerceId]);
+    const result = await pool.query(query, [productId, commerceId]);
 
-    if (productResult.rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
 
-    const product = productResult.rows[0];
-
-    // Obtener las opciones del producto
-    const optionsQuery = `
-      SELECT * FROM product_options
-      WHERE product_id = $1
-      ORDER BY id
-    `;
-    const optionsResult = await pool.query(optionsQuery, [productId]);
-    const options = optionsResult.rows;
-
-    // Para cada opción, obtener sus items
-    for (const option of options) {
-      const itemsQuery = `
-        SELECT * FROM option_items
-        WHERE option_id = $1
-        ORDER BY id
-      `;
-      const itemsResult = await pool.query(itemsQuery, [option.id]);
-      option.items = itemsResult.rows;
-    }
-
-    // Añadir opciones al producto
-    product.options = options;
-
-    res.json(product);
+    res.json(result.rows[0]);
   } catch (error) {
     console.error(`Error en /api/products/${req.params.id} [GET]`, error);
     res.status(500).json({ error: 'Error al obtener el producto' });
@@ -210,13 +123,9 @@ router.get('/:id', async (req, res) => {
 
 // Endpoint para actualizar un producto
 router.put('/:id', async (req, res) => {
-  const client = await pool.connect();
-
   try {
-    await client.query('BEGIN');
-
     const productId = req.params.id;
-    const { name, description, price, category_id, options } = req.body;
+    const { name, description, price, category_id } = req.body;
     const commerceId = req.user.commerceId;
 
     // Validar datos requeridos
@@ -233,119 +142,39 @@ router.put('/:id', async (req, res) => {
     `;
 
     const values = [name, description || '', price, category_id, productId, commerceId];
-    const result = await client.query(query, values);
+    const result = await pool.query(query, values);
 
     if (result.rows.length === 0) {
-      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Producto no encontrado o no tienes permisos para editarlo' });
     }
 
-    const product = result.rows[0];
-    product.options = [];
-
-    // Si se enviaron opciones actualizadas
-    if (options) {
-      // Eliminar todas las opciones existentes y sus ítems (gracias a ON DELETE CASCADE)
-      await client.query('DELETE FROM product_options WHERE product_id = $1', [productId]);
-
-      // Insertar las nuevas opciones
-      for (const option of options) {
-        const optionQuery = `
-          INSERT INTO product_options (product_id, name, required, multiple, max_selections)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING *
-        `;
-        const optionValues = [
-          product.id,
-          option.name,
-          option.required || false,
-          option.multiple || false,
-          option.max_selections || null
-        ];
-
-        const optionResult = await client.query(optionQuery, optionValues);
-        const createdOption = optionResult.rows[0];
-        createdOption.items = [];
-
-        // Si la opción tiene ítems, insertarlos
-        if (option.items && option.items.length > 0) {
-          for (const item of option.items) {
-            const itemQuery = `
-              INSERT INTO option_items (option_id, name, price_addition, available, image_url)
-              VALUES ($1, $2, $3, $4, $5)
-              RETURNING *
-            `;
-            const itemValues = [
-              createdOption.id,
-              item.name,
-              item.price_addition || 0,
-              item.available !== false,
-              item.image_url || null
-            ];
-
-            const itemResult = await client.query(itemQuery, itemValues);
-            createdOption.items.push(itemResult.rows[0]);
-          }
-        }
-
-        product.options.push(createdOption);
-      }
-    } else {
-      // Si no se enviaron opciones, obtener las existentes
-      const optionsQuery = `SELECT * FROM product_options WHERE product_id = $1`;
-      const optionsResult = await client.query(optionsQuery, [productId]);
-      const options = optionsResult.rows;
-
-      // Para cada opción, obtener sus items
-      for (const option of options) {
-        const itemsQuery = `SELECT * FROM option_items WHERE option_id = $1`;
-        const itemsResult = await client.query(itemsQuery, [option.id]);
-        option.items = itemsResult.rows;
-      }
-
-      product.options = options;
-    }
-
-    await client.query('COMMIT');
-
     res.json({
       message: 'Producto actualizado exitosamente',
-      product: product
+      product: result.rows[0]
     });
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error(`Error en /api/products/${req.params.id} [PUT]`, error);
     res.status(500).json({ error: 'Error al actualizar el producto' });
-  } finally {
-    client.release();
   }
 });
 
 // Endpoint para eliminar un producto
 router.delete('/:id', async (req, res) => {
-  const client = await pool.connect();
-
   try {
-    await client.query('BEGIN');
-
     const productId = req.params.id;
     const commerceId = req.user.commerceId;
 
     // Buscar el producto antes de eliminar para obtener la image_url
-    const productQuery = await client.query(
+    const productQuery = await pool.query(
       "SELECT image_url FROM products WHERE id = $1 AND commerce_id = $2",
       [productId, commerceId]
     );
 
     if (productQuery.rows.length === 0) {
-      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Producto no encontrado o no tienes permisos para eliminarlo' });
     }
 
     const imageUrl = productQuery.rows[0].image_url;
-
-    // Eliminar las opciones del producto (aunque esto es redundante debido a ON DELETE CASCADE)
-    await client.query('DELETE FROM product_options WHERE product_id = $1', [productId]);
 
     // Si hay imagen en Cloudinary, eliminarla
     if (imageUrl) {
@@ -375,20 +204,15 @@ router.delete('/:id', async (req, res) => {
       RETURNING id
     `;
 
-    const result = await client.query(deleteQuery, [productId, commerceId]);
-
-    await client.query('COMMIT');
+    const result = await pool.query(deleteQuery, [productId, commerceId]);
 
     res.json({
       message: 'Producto eliminado exitosamente',
       id: result.rows[0].id
     });
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error(`Error en /api/products/${req.params.id} [DELETE]`, error);
     res.status(500).json({ error: 'Error al eliminar el producto' });
-  } finally {
-    client.release();
   }
 });
 
