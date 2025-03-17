@@ -51,7 +51,9 @@ const privateCorsOptions = {
           'http://localhost:3000',
           'https://cartaenlinea-67dbc62791d3.herokuapp.com',
           'https://menunube.online',
-          'https://www.menunube.online'
+          'https://www.menunube.online',
+          'replit.app',
+          'repl.co'
         ];
 
         // Verificar dominios exactos
