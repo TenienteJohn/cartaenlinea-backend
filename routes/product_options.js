@@ -310,10 +310,14 @@ router.post('/:optionId/items', authMiddleware, async (req, res) => {
  */
 router.put('/:optionId', authMiddleware, async (req, res) => {
   const client = await pool.connect();
+
   try {
     const { optionId } = req.params;
-    const { name, required, multiple, max_selections } = req.body;
+    const { name, required, multiple, max_selections, items } = req.body;
 
+    await client.query('BEGIN');
+
+    // 🛑 1️⃣ Verificar si la opción existe y pertenece al comercio del usuario
     const verifyQuery = `
       SELECT po.id FROM product_options po
       JOIN products p ON po.product_id = p.id
@@ -322,19 +326,79 @@ router.put('/:optionId', authMiddleware, async (req, res) => {
     const verifyResult = await client.query(verifyQuery, [optionId, req.user.commerceId]);
 
     if (verifyResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Opción no encontrada o no pertenece a este comercio' });
     }
 
+    // ✅ 2️⃣ Actualizar la opción en la base de datos
     const updateQuery = `
       UPDATE product_options
       SET name=$1, required=$2, multiple=$3, max_selections=$4, updated_at=NOW()
-      WHERE id=$5 RETURNING *
+      WHERE id=$5 RETURNING *;
     `;
     const updateValues = [name, required, multiple, multiple ? max_selections : null, optionId];
 
     const updateResult = await client.query(updateQuery, updateValues);
-    res.json(updateResult.rows[0]);
+
+    // ✅ 3️⃣ ACTUALIZAR los ítems de la opción
+    if (items && items.length > 0) {
+      for (const item of items) {
+        if (item.id) {
+          // 📝 Actualizar un ítem existente
+          const updateItemQuery = `
+            UPDATE option_items
+            SET name=$1, price_addition=$2, available=$3, image_url=$4, updated_at=NOW()
+            WHERE id=$5 AND option_id=$6;
+          `;
+          await client.query(updateItemQuery, [
+            item.name,
+            item.price_addition || 0,
+            item.available !== false,
+            item.image_url || null,
+            item.id,
+            optionId
+          ]);
+        } else {
+          // 📝 Agregar un nuevo ítem a la opción
+          const insertItemQuery = `
+            INSERT INTO option_items (option_id, name, price_addition, available, image_url, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW());
+          `;
+          await client.query(insertItemQuery, [
+            optionId,
+            item.name,
+            item.price_addition || 0,
+            item.available !== false,
+            item.image_url || null
+          ]);
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+
+    // 🔄 4️⃣ Obtener la opción actualizada con sus ítems
+    const updatedOptionQuery = `
+      SELECT po.*,
+        json_agg(
+          json_build_object(
+            'id', oi.id,
+            'name', oi.name,
+            'price_addition', oi.price_addition,
+            'available', oi.available,
+            'image_url', oi.image_url
+          ) ORDER BY oi.id
+        ) FILTER (WHERE oi.id IS NOT NULL) AS items
+      FROM product_options po
+      LEFT JOIN option_items oi ON po.id = oi.option_id
+      WHERE po.id = $1
+      GROUP BY po.id;
+    `;
+    const updatedOptionResult = await client.query(updatedOptionQuery, [optionId]);
+
+    res.json(updatedOptionResult.rows[0]);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error al actualizar opción:', error);
     res.status(500).json({ error: 'Error al actualizar la opción' });
   } finally {
