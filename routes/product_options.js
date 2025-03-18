@@ -16,6 +16,7 @@ router.get('/:productId', async (req, res) => {
   try {
     const { productId } = req.params;
 
+    // Obtener todas las opciones del producto
     const optionsQuery = `
       SELECT po.*,
         json_agg(
@@ -51,6 +52,7 @@ router.post('/', authMiddleware, async (req, res) => {
   const client = await pool.connect();
 
   try {
+    // Iniciar transacción
     await client.query('BEGIN');
 
     const {
@@ -62,6 +64,7 @@ router.post('/', authMiddleware, async (req, res) => {
       items = []
     } = req.body;
 
+    // Verificar que el producto exista y pertenezca al commerce del usuario
     const productQuery = `
       SELECT p.id FROM products p
       WHERE p.id = $1 AND p.commerce_id = $2
@@ -75,6 +78,7 @@ router.post('/', authMiddleware, async (req, res) => {
       });
     }
 
+    // Insertar la nueva opción
     const insertQuery = `
       INSERT INTO product_options (
         product_id,
@@ -100,6 +104,7 @@ router.post('/', authMiddleware, async (req, res) => {
     const result = await client.query(insertQuery, values);
     const optionId = result.rows[0].id;
 
+    // Si hay items, procesarlos
     if (items && items.length > 0) {
       for (const item of items) {
         const itemInsertQuery = `
@@ -125,6 +130,7 @@ router.post('/', authMiddleware, async (req, res) => {
       }
     }
 
+    // Confirmar transacción
     await client.query('COMMIT');
 
     res.status(201).json(result.rows[0]);
@@ -150,6 +156,7 @@ router.post('/:optionId/items', authMiddleware, async (req, res) => {
     const { optionId } = req.params;
     const { name, price_addition, available, image_url } = req.body;
 
+    // Verificar que la opción pertenezca a un producto del commerce del usuario
     const optionQuery = `
       SELECT po.id FROM product_options po
       JOIN products p ON po.product_id = p.id
@@ -162,6 +169,7 @@ router.post('/:optionId/items', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Opción no encontrada o no pertenece a este comercio' });
     }
 
+    // Insertar el nuevo ítem
     const insertQuery = `
       INSERT INTO option_items (
         option_id,
@@ -190,45 +198,6 @@ router.post('/:optionId/items', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error al crear ítem de opción:', error);
     res.status(500).json({ error: 'Error al crear el ítem' });
-  }
-});
-
-
-/**
- * PUT /api/product-options/:optionId
- * Actualizar una opción existente
- */
-router.put('/:optionId', authMiddleware, async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const { optionId } = req.params;
-    const { name, required, multiple, max_selections } = req.body;
-
-    const verifyQuery = `
-      SELECT po.id FROM product_options po
-      JOIN products p ON po.product_id = p.id
-      WHERE po.id = $1 AND p.commerce_id = $2
-    `;
-    const verifyResult = await client.query(verifyQuery, [optionId, req.user.commerceId]);
-
-    if (verifyResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Opción no encontrada o no pertenece a este comercio' });
-    }
-
-    const updateQuery = `
-      UPDATE product_options
-      SET name=$1, required=$2, multiple=$3, max_selections=$4, updated_at=NOW()
-      WHERE id=$5 RETURNING *
-    `;
-    const updateValues = [name, required, multiple, multiple ? max_selections : null, optionId];
-
-    const updateResult = await client.query(updateQuery, updateValues);
-    res.json(updateResult.rows[0]);
-  } catch (error) {
-    console.error('Error al actualizar opción:', error);
-    res.status(500).json({ error: 'Error al actualizar la opción' });
-  } finally {
-    client.release();
   }
 });
 
