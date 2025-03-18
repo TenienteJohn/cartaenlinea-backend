@@ -145,44 +145,7 @@ router.post('/', authMiddleware, async (req, res) => {
  * POST /api/product-options/:optionId/items
  * Agregar un ítem a una opción
  */
-
-    /**
-     * DELETE /api/product-options/:optionId/items/:itemId
-     * Eliminar un item de una opción
-     */
-    router.delete('/:optionId/items/:itemId', authMiddleware, async (req, res) => {
-        try {
-            const { optionId, itemId } = req.params;
-
-            // Verificar que la opción y el ítem existen
-            const optionQuery = `
-                SELECT po.id FROM product_options po
-                JOIN products p ON po.product_id = p.id
-                WHERE po.id = $1 AND p.commerce_id = $2
-            `;
-            const optionResult = await pool.query(optionQuery, [optionId, req.user.commerceId]);
-
-            if (optionResult.rows.length === 0) {
-                return res.status(404).json({ error: 'Opción no encontrada o no pertenece a este comercio' });
-            }
-
-            // Eliminar el item
-            const deleteQuery = "DELETE FROM option_items WHERE id = $1 RETURNING *";
-            const deleteResult = await pool.query(deleteQuery, [itemId]);
-
-            if (deleteResult.rowCount === 0) {
-                return res.status(404).json({ error: 'Ítem no encontrado' });
-            }
-
-            res.json({ success: true, message: 'Ítem eliminado correctamente' });
-        } catch (error) {
-            console.error('Error al eliminar ítem:', error);
-            res.status(500).json({ error: 'Error al eliminar el ítem' });
-        }
-    });
-
-    router.post('/:optionId/items', authMiddleware, async (req, res) => {
-
+router.post('/:optionId/items', authMiddleware, async (req, res) => {
   try {
     const { optionId } = req.params;
     const { name, price_addition, available, image_url } = req.body;
@@ -270,3 +233,53 @@ router.put('/:optionId', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+/**
+ * PUT /api/product-options/:id
+ * Actualizar una opción de producto
+ */
+router.put('/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, required, multiple, max_selections, items } = req.body;
+
+    const updateQuery = `
+      UPDATE product_options
+      SET name = $1, required = $2, multiple = $3, max_selections = $4, updated_at = NOW()
+      WHERE id = $5
+      RETURNING *;
+    `;
+
+    const result = await pool.query(updateQuery, [name, required, multiple, max_selections, id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Opción no encontrada' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al actualizar opción:', error);
+    res.status(500).json({ error: 'Error al actualizar opción' });
+  }
+});
+
+/**
+ * DELETE /api/product-options/:id
+ * Eliminar una opción de producto
+ */
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const deleteQuery = `DELETE FROM product_options WHERE id = $1 RETURNING *;`;
+    const result = await pool.query(deleteQuery, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Opción no encontrada' });
+    }
+
+    res.json({ message: 'Opción eliminada exitosamente' });
+  } catch (error) {
+    console.error('Error al eliminar opción:', error);
+    res.status(500).json({ error: 'Error al eliminar opción' });
+  }
+});
