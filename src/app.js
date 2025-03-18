@@ -32,12 +32,21 @@ app.use(express.json());
 
 const privateCorsOptions = {
   origin: function(origin, callback) {
+    // Función para validar si un origen es permitido
     const isOriginAllowed = (testOrigin) => {
       try {
         const url = new URL(testOrigin);
         const hostname = url.hostname;
 
-        // Permitir cualquier dominio exacto
+        // Lista de dominios base permitidos
+        const allowedDomains = [
+          'localhost',
+          'cartaenlinea.herokuapp.com',
+          'vercel.app',
+          'menunube.online'
+        ];
+
+        // Dominios exactos permitidos
         const exactDomains = [
           'http://localhost:3000',
           'https://cartaenlinea-67dbc62791d3.herokuapp.com',
@@ -45,27 +54,35 @@ const privateCorsOptions = {
           'https://www.menunube.online'
         ];
 
-        if (exactDomains.includes(testOrigin)) return true;
+        // Verificar dominios exactos
+        if (exactDomains.includes(testOrigin)) {
+          return true;
+        }
 
-        // Permitir claramente todos los subdominios locales en desarrollo
-        if (hostname.endsWith('.localhost') || hostname === 'localhost') return true;
+        // Verificar subdominios
+        const domainParts = hostname.split('.');
+        if (domainParts.length >= 3) {
+          const baseDomain = `${domainParts[domainParts.length - 2]}.${domainParts[domainParts.length - 1]}`;
 
-        const allowedBaseDomains = ['menunube.online', 'vercel.app'];
+          // Permitir subdominios de dominios específicos
+          if (baseDomain === 'menunube.online' ||
+              baseDomain === 'vercel.app') {
+            return true;
+          }
+        }
 
-        const url = new URL(testOrigin);
-        const domainParts = url.hostname.split('.');
-        const baseDomain = domainParts.slice(-2).join('.');
-
-        return allowedBaseDomains.includes(baseDomain);
+        return false;
       } catch (error) {
-        console.error('Error validando dominio:', error);
+        console.error('Error validando origen:', error);
         return false;
       }
     };
 
+    // Verificación final
     if (!origin || isOriginAllowed(origin)) {
       callback(null, true);
     } else {
+      console.log('Intento de CORS no permitido:', origin);
       callback(new Error('No permitido por CORS'));
     }
   },
