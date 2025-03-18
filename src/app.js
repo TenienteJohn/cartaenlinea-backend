@@ -59,6 +59,11 @@ const privateCorsOptions = {
           return true;
         }
 
+        // 🔥 Mejora específica: Permitir claramente subdominios locales (desarrollo local)
+        if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+          return true;
+        }
+
         // Verificar subdominios
         const domainParts = hostname.split('.');
         if (domainParts.length >= 3) {
