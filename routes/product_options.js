@@ -342,6 +342,21 @@ router.put('/:optionId', authMiddleware, async (req, res) => {
 
     // ✅ 3️⃣ ACTUALIZAR los ítems de la opción
     if (items && items.length > 0) {
+      // Obtener ítems actuales
+      const currentItemsQuery = `SELECT id FROM option_items WHERE option_id = $1`;
+      const currentItems = await client.query(currentItemsQuery, [optionId]);
+      const currentItemIds = currentItems.rows.map(row => row.id);
+
+      // Encontrar ítems que deberían eliminarse (presentes en DB pero no en la solicitud)
+      const requestItemIds = items.filter(item => item.id).map(item => item.id);
+      const itemsToDelete = currentItemIds.filter(id => !requestItemIds.includes(id));
+
+      // Eliminar ítems que ya no están en la solicitud
+      if (itemsToDelete.length > 0) {
+        const deleteItemsQuery = `DELETE FROM option_items WHERE id = ANY($1)`;
+        await client.query(deleteItemsQuery, [itemsToDelete]);
+      }
+
       for (const item of items) {
         if (item.id) {
           // 📝 Actualizar un ítem existente
