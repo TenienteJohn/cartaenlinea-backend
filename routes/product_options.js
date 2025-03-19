@@ -407,3 +407,69 @@ router.put('/:optionId', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+
+/**
+ * PUT /api/product-options/:optionId/items/:itemId
+ * Actualizar un ítem dentro de una opción
+ */
+router.put('/:optionId/items/:itemId', authMiddleware, async (req, res) => {
+  try {
+    const { optionId, itemId } = req.params;
+    const { name, price_addition, available, image_url } = req.body;
+
+    const verifyQuery = `
+      SELECT oi.id FROM option_items oi
+      JOIN product_options po ON oi.option_id = po.id
+      JOIN products p ON po.product_id = p.id
+      WHERE oi.id = $1 AND po.id = $2 AND p.commerce_id = $3
+    `;
+    const verifyResult = await pool.query(verifyQuery, [itemId, optionId, req.user.commerceId]);
+
+    if (verifyResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Ítem no encontrado o no pertenece a este comercio' });
+    }
+
+    const updateQuery = `
+      UPDATE option_items
+      SET name = $1, price_addition = $2, available = $3, image_url = $4, updated_at = NOW()
+      WHERE id = $5 RETURNING *;
+    `;
+    const updateValues = [name, price_addition || 0, available, image_url || null, itemId];
+    const updateResult = await pool.query(updateQuery, updateValues);
+
+    res.json(updateResult.rows[0]);
+  } catch (error) {
+    console.error('Error al actualizar ítem:', error);
+    res.status(500).json({ error: 'Error al actualizar el ítem' });
+  }
+});
+
+/**
+ * DELETE /api/product-options/:optionId/items/:itemId
+ * Eliminar un ítem dentro de una opción
+ */
+router.delete('/:optionId/items/:itemId', authMiddleware, async (req, res) => {
+  try {
+    const { optionId, itemId } = req.params;
+
+    const verifyQuery = `
+      SELECT oi.id FROM option_items oi
+      JOIN product_options po ON oi.option_id = po.id
+      JOIN products p ON po.product_id = p.id
+      WHERE oi.id = $1 AND po.id = $2 AND p.commerce_id = $3
+    `;
+    const verifyResult = await pool.query(verifyQuery, [itemId, optionId, req.user.commerceId]);
+
+    if (verifyResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Ítem no encontrado o no pertenece a este comercio' });
+    }
+
+    const deleteQuery = `DELETE FROM option_items WHERE id = $1 RETURNING *;`;
+    const deleteResult = await pool.query(deleteQuery, [itemId]);
+
+    res.json({ message: 'Ítem eliminado exitosamente', deletedItem: deleteResult.rows[0] });
+  } catch (error) {
+    console.error('Error al eliminar ítem:', error);
+    res.status(500).json({ error: 'Error al eliminar el ítem' });
+  }
+});
