@@ -38,10 +38,7 @@ router.get('/:subdomain', async (req, res) => {
     const commerce = commerceResult.rows[0];
     console.log(`API: Comercio encontrado: ${commerce.business_name} (ID: ${commerce.id})`);
 
-    // Obtener categorías y productos, ordenados por la columna 'position'
-    // Busca en routes/public.js la consulta que obtiene las categorías y productos
-    // Reemplaza esa consulta por esta:
-
+    // Consulta actualizada para incluir etiquetas
     const categoriesQuery = `
       SELECT c.id, c.name, c.position,
         json_agg(
@@ -51,6 +48,22 @@ router.get('/:subdomain', async (req, res) => {
             'image_url', p.image_url,
             'description', p.description,
             'price', p.price,
+            'tags', (
+              SELECT json_agg(
+                json_build_object(
+                  'id', t.id,
+                  'name', t.name,
+                  'color', t.color,
+                  'textColor', t.text_color,
+                  'discount', t.discount,
+                  'isRecommended', t.is_recommended,
+                  'priority', t.priority
+                )
+              )
+              FROM tags t
+              JOIN product_tags pt ON t.id = pt.tag_id
+              WHERE pt.product_id = p.id AND t.visible = true
+            ),
             'options', (
               SELECT json_agg(
                 json_build_object(
@@ -59,6 +72,22 @@ router.get('/:subdomain', async (req, res) => {
                   'required', po.required,
                   'multiple', po.multiple,
                   'max_selections', po.max_selections,
+                  'tags', (
+                    SELECT json_agg(
+                      json_build_object(
+                        'id', t.id,
+                        'name', t.name,
+                        'color', t.color,
+                        'textColor', t.text_color,
+                        'discount', t.discount,
+                        'isRecommended', t.is_recommended,
+                        'priority', t.priority
+                      )
+                    )
+                    FROM tags t
+                    JOIN option_tags ot ON t.id = ot.tag_id
+                    WHERE ot.option_id = po.id AND t.visible = true
+                  ),
                   'items', (
                     SELECT json_agg(
                       json_build_object(
@@ -66,7 +95,24 @@ router.get('/:subdomain', async (req, res) => {
                         'name', oi.name,
                         'price_addition', oi.price_addition,
                         'available', oi.available,
-                        'image_url', oi.image_url
+                        'image_url', oi.image_url,
+                        'tags', (
+                          SELECT json_agg(
+                            json_build_object(
+                              'id', t.id,
+                              'name', t.name,
+                              'color', t.color,
+                              'textColor', t.text_color,
+                              'discount', t.discount,
+                              'disableSelection', t.disable_selection,
+                              'isRecommended', t.is_recommended,
+                              'priority', t.priority
+                            )
+                          )
+                          FROM tags t
+                          JOIN item_tags it ON t.id = it.tag_id
+                          WHERE it.item_id = oi.id AND t.visible = true
+                        )
                       )
                     )
                     FROM option_items oi

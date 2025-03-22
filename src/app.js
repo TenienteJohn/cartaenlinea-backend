@@ -23,6 +23,7 @@ const categoriesRouter = require("../routes/categories");
 const productsRouter = require("../routes/products");
 const publicRoutes = require("../routes/public"); // Importar las rutas públicas
 const productOptionsRouter = require('../routes/product_options');
+const tagsRouter = require('../routes/tags');
 
 // Inicializar la aplicación Express
 const app = express();
@@ -159,6 +160,7 @@ app.use("/api/categories", authMiddleware, categoriesRouter);
 app.use("/api/products", authMiddleware, productsRouter);
 app.use("/api/public", publicRoutes); // Registrar las rutas públicas
 app.use('/api/product-options', authMiddleware, productOptionsRouter);
+app.use("/api/tags", authMiddleware, tagsRouter);
 
 // Listar endpoints disponibles en la API
 const expressListEndpoints = require("express-list-endpoints");
