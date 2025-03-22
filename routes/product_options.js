@@ -143,7 +143,7 @@ router.delete('/:optionId/items/:itemId', authMiddleware, async (req, res) => {
 
 /**
  * GET /api/product-options/:productId
- * Obtener todas las opciones de un producto con sus ítems
+ * Obtener todas las opciones de un producto con sus ítems y etiquetas
  */
 router.get('/:productId', async (req, res) => {
   try {
@@ -151,13 +151,51 @@ router.get('/:productId', async (req, res) => {
 
     const optionsQuery = `
       SELECT po.*,
+        (
+          SELECT json_agg(
+            json_build_object(
+              'id', t.id,
+              'name', t.name,
+              'color', t.color,
+              'textColor', t.text_color,
+              'type', t.type,
+              'visible', t.visible,
+              'priority', t.priority,
+              'discount', t.discount,
+              'disableSelection', t.disable_selection,
+              'isRecommended', t.is_recommended
+            )
+          )
+          FROM option_tags ot
+          JOIN tags t ON ot.tag_id = t.id
+          WHERE ot.option_id = po.id AND t.visible = true
+        ) AS tags,
         json_agg(
           json_build_object(
             'id', oi.id,
             'name', oi.name,
             'price_addition', oi.price_addition,
             'available', oi.available,
-            'image_url', oi.image_url
+            'image_url', oi.image_url,
+            'tags', (
+              SELECT json_agg(
+                json_build_object(
+                  'id', t.id,
+                  'name', t.name,
+                  'color', t.color,
+                  'textColor', t.text_color,
+                  'type', t.type,
+                  'visible', t.visible,
+                  'priority', t.priority,
+                  'discount', t.discount,
+                  'disableSelection', t.disable_selection,
+                  'isRecommended', t.is_recommended
+                )
+              )
+              FROM item_tags it
+              JOIN tags t ON it.tag_id = t.id
+              WHERE it.item_id = oi.id AND t.visible = true
+            )
           ) ORDER BY oi.id
         ) FILTER (WHERE oi.id IS NOT NULL) AS items
       FROM product_options po
