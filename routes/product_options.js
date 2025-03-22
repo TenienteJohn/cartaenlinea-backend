@@ -3,6 +3,29 @@ const express = require('express');
 const router = express.Router();
 const { Pool } = require('pg');
 const authMiddleware = require('../middlewares/authMiddleware');
+const cloudinary = require("cloudinary").v2;
+const multer = require("multer");
+const path = require("path");
+
+// Configurar almacenamiento en memoria con Multer
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 3 * 1024 * 1024, // Limitar a 3MB
+  },
+  fileFilter: (req, file, cb) => {
+    // Validar que sea una imagen
+    const filetypes = /jpeg|jpg|png|gif|webp/;
+    const mimetype = filetypes.test(file.mimetype);
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    }
+    cb(new Error("Solo se permiten archivos de imagen"));
+  }
+});
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -488,3 +511,105 @@ router.delete('/:optionId/items/:itemId', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Error al eliminar el ítem' });
   }
 });
+
+/**
+ * PUT /api/product-options/:optionId/items/:itemId/update-image
+ * Actualizar la imagen de un ítem de opción
+ */
+router.put('/:optionId/items/:itemId/update-image', authMiddleware, upload.single('image'), async (req, res) => {
+  try {
+    const { optionId, itemId } = req.params;
+
+    // Verificar que el ítem pertenezca a una opción dentro del comercio del usuario
+    const verifyQuery = `
+      SELECT oi.id, oi.name, oi.image_url FROM option_items oi
+      JOIN product_options po ON oi.option_id = po.id
+      JOIN products p ON po.product_id = p.id
+      WHERE oi.id = $1 AND po.id = $2 AND p.commerce_id = $3
+    `;
+    const verifyResult = await pool.query(verifyQuery, [itemId, optionId, req.user.commerceId]);
+
+    if (verifyResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Ítem no encontrado o no pertenece a este comercio' });
+    }
+
+    // Verificar si se ha subido un archivo
+    if (!req.file) {
+      return res.status(400).json({ error: "No se ha proporcionado un archivo" });
+    }
+
+    const item = verifyResult.rows[0];
+
+    // Obtener la imagen actual (si existe) para eliminarla después
+    const oldImageUrl = item.image_url;
+
+    // Eliminar la imagen anterior de Cloudinary si existe
+    if (oldImageUrl) {
+      try {
+        // Extraer el public_id correcto de Cloudinary
+        const urlParts = oldImageUrl.split('/');
+        // Encontrar el índice de 'upload' en la URL
+        const uploadIndex = urlParts.findIndex(part => part === 'upload');
+        if (uploadIndex !== -1 && urlParts.length > uploadIndex + 2) {
+          // El public_id comienza después de 'upload/v{number}/'
+          const publicIdWithExt = urlParts.slice(uploadIndex + 2).join('/');
+          const publicId = publicIdWithExt.substring(0, publicIdWithExt.lastIndexOf('.'));
+
+          console.log("⚙️ Eliminando imagen anterior de item con public_id:", publicId);
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (cloudinaryError) {
+        console.error("⚠️ Error al eliminar imagen anterior de Cloudinary:", cloudinaryError);
+        // Continuar con la subida de la nueva imagen aunque falle la eliminación de la anterior
+      }
+    }
+
+    // Preparar el archivo para subir a Cloudinary
+    const fileBuffer = req.file.buffer;
+    const fileType = req.file.mimetype;
+
+    // Sanitizar el nombre del archivo: reemplazar espacios y caracteres especiales
+    const sanitizedName = item.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_');
+
+    // Crear un nombre único para el archivo
+    const uniqueFilename = `option_item_${itemId}_${sanitizedName}_${Date.now()}`;
+
+    // Convertir el buffer a base64 para enviarlo a Cloudinary
+    const base64File = `data:${fileType};base64,${fileBuffer.toString('base64')}`;
+
+    console.log("⚙️ Subiendo imagen de item de opción a Cloudinary con filename:", uniqueFilename);
+
+    // Subir a Cloudinary con tamaño optimizado para miniaturas
+    const uploadResult = await cloudinary.uploader.upload(base64File, {
+      folder: 'option-items-images',
+      public_id: uniqueFilename,
+      resource_type: 'image',
+      overwrite: true,
+      transformation: [
+        { width: 150, height: 150, crop: 'fill', gravity: "auto" } // Cuadrado optimizado para miniaturas
+      ]
+    });
+
+    console.log("✅ Imagen de item subida a Cloudinary:", uploadResult.secure_url);
+
+    // Actualizar la URL de la imagen en la base de datos
+    await pool.query(
+      "UPDATE option_items SET image_url = $1, updated_at = NOW() WHERE id = $2",
+      [uploadResult.secure_url, itemId]
+    );
+
+    res.json({
+      message: "Imagen de item actualizada correctamente",
+      image_url: uploadResult.secure_url
+    });
+
+  } catch (error) {
+    console.error(`Error en /api/product-options/${req.params.optionId}/items/${req.params.itemId}/update-image [PUT]`, error);
+    res.status(500).json({ error: 'Error al actualizar la imagen del item' });
+  }
+});
+
+module.exports = router;
