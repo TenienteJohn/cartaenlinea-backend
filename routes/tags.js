@@ -9,6 +9,45 @@ const pool = new Pool({
 });
 
 /**
+ * GET /api/tags/product/:productId
+ * Obtener todas las etiquetas asignadas a un producto
+ */
+router.get('/product/:productId', authMiddleware, async (req, res) => {
+  try {
+    const { productId } = req.params;
+
+    // Verificar que el producto pertenezca al comercio del usuario
+    const verifyProductQuery = `
+      SELECT id FROM products
+      WHERE id = $1 AND commerce_id = $2
+    `;
+    const productResult = await pool.query(verifyProductQuery, [productId, req.user.commerceId]);
+
+    if (productResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Producto no encontrado o no pertenece a este comercio' });
+    }
+
+    // Consulta para obtener las etiquetas del producto
+    const query = `
+      SELECT t.id, t.name, t.color, t.text_color as "textColor",
+             t.type, t.visible, t.priority, t.discount,
+             t.disable_selection as "disableSelection",
+             t.is_recommended as "isRecommended"
+      FROM tags t
+      JOIN product_tags pt ON t.id = pt.tag_id
+      WHERE pt.product_id = $1
+      ORDER BY t.priority DESC, t.name
+    `;
+    const result = await pool.query(query, [productId]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener etiquetas del producto:', error);
+    res.status(500).json({ error: 'Error al obtener etiquetas del producto' });
+  }
+});
+
+/**
  * GET /api/tags
  * Obtener todas las etiquetas del usuario actual
  */
