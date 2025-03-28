@@ -24,7 +24,8 @@ router.get('/:subdomain', async (req, res) => {
       SELECT
         id, business_name, business_category, subdomain, logo_url, banner_url,
         is_open, delivery_time, delivery_fee, min_order_value, accepts_delivery, accepts_pickup,
-        contact_phone, contact_email, social_instagram, social_facebook, social_whatsapp
+        contact_phone, contact_email, social_instagram, social_facebook, social_whatsapp,
+        working_hours /* Nuevo campo */
       FROM commerces
       WHERE subdomain = $1
     `;

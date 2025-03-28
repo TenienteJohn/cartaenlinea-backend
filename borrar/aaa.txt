@@ -1,3 +1,166 @@
+public.js
+
+// routes/public.js
+const express = require('express');
+const router = express.Router();
+const { Pool } = require('pg');
+
+// Inicializar el pool directamente en lugar de importarlo
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    require: true,
+    rejectUnauthorized: false,
+  },
+});
+
+// Endpoint público para obtener la carta de un comercio por subdominio
+router.get('/:subdomain', async (req, res) => {
+  try {
+    const { subdomain } = req.params;
+
+    console.log(`API: Obteniendo datos para subdominio: ${subdomain}`);
+
+    // Obtener información del comercio con todos los campos
+    const commerceQuery = `
+      SELECT
+        id, business_name, business_category, subdomain, logo_url, banner_url,
+        is_open, delivery_time, delivery_fee, min_order_value, accepts_delivery, accepts_pickup,
+        contact_phone, contact_email, social_instagram, social_facebook, social_whatsapp
+      FROM commerces
+      WHERE subdomain = $1
+    `;
+    const commerceResult = await pool.query(commerceQuery, [subdomain]);
+
+    if (commerceResult.rows.length === 0) {
+      console.log(`API: Comercio no encontrado para subdominio: ${subdomain}`);
+      return res.status(404).json({ error: 'Comercio no encontrado' });
+    }
+
+    const commerce = commerceResult.rows[0];
+    console.log(`API: Comercio encontrado: ${commerce.business_name} (ID: ${commerce.id})`);
+
+    // Consulta actualizada para incluir etiquetas
+    const categoriesQuery = `
+      SELECT c.id, c.name, c.position,
+        json_agg(
+          json_build_object(
+            'id', p.id,
+            'name', p.name,
+            'image_url', p.image_url,
+            'description', p.description,
+            'price', p.price,
+            'tags', (
+              SELECT json_agg(
+                json_build_object(
+                  'id', t.id,
+                  'name', t.name,
+                  'color', t.color,
+                  'textColor', t.text_color,
+                  'discount', t.discount,
+                  'isRecommended', t.is_recommended,
+                  'priority', t.priority
+                )
+              )
+              FROM tags t
+              JOIN product_tags pt ON t.id = pt.tag_id
+              WHERE pt.product_id = p.id AND t.visible = true
+            ),
+            'options', (
+              SELECT json_agg(
+                json_build_object(
+                  'id', po.id,
+                  'name', po.name,
+                  'required', po.required,
+                  'multiple', po.multiple,
+                  'max_selections', po.max_selections,
+                  'tags', (
+                    SELECT json_agg(
+                      json_build_object(
+                        'id', t.id,
+                        'name', t.name,
+                        'color', t.color,
+                        'textColor', t.text_color,
+                        'discount', t.discount,
+                        'isRecommended', t.is_recommended,
+                        'priority', t.priority
+                      )
+                    )
+                    FROM tags t
+                    JOIN option_tags ot ON t.id = ot.tag_id
+                    WHERE ot.option_id = po.id AND t.visible = true
+                  ),
+                  'items', (
+                    SELECT json_agg(
+                      json_build_object(
+                        'id', oi.id,
+                        'name', oi.name,
+                        'price_addition', oi.price_addition,
+                        'available', oi.available,
+                        'image_url', oi.image_url,
+                        'tags', (
+                          SELECT json_agg(
+                            json_build_object(
+                              'id', t.id,
+                              'name', t.name,
+                              'color', t.color,
+                              'textColor', t.text_color,
+                              'discount', t.discount,
+                              'disableSelection', t.disable_selection,
+                              'isRecommended', t.is_recommended,
+                              'priority', t.priority
+                            )
+                          )
+                          FROM tags t
+                          JOIN item_tags it ON t.id = it.tag_id
+                          WHERE it.item_id = oi.id AND t.visible = true
+                        )
+                      )
+                    )
+                    FROM option_items oi
+                    WHERE oi.option_id = po.id AND oi.available = true
+                  )
+                )
+              )
+              FROM product_options po
+              WHERE po.product_id = p.id
+            )
+          )
+        ) FILTER (WHERE p.id IS NOT NULL) AS products
+      FROM categories c
+      LEFT JOIN products p ON c.id = p.category_id
+      WHERE c.commerce_id = $1
+      GROUP BY c.id, c.name, c.position
+      ORDER BY c.position, c.id
+    `;
+
+    const categoriesResult = await pool.query(categoriesQuery, [commerce.id]);
+    console.log(`API: Se encontraron ${categoriesResult.rows.length} categorías`);
+
+    // Para cada categoría, si products es null, convertirlo en array vacío
+    const categories = categoriesResult.rows.map(category => ({
+      ...category,
+      products: category.products || []
+    }));
+
+    res.json({
+      commerce,
+      categories,
+    });
+  } catch (error) {
+    console.error('API: Error al obtener la carta:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+module.exports = router;
+
+
+
+
+
+commerces.js
+
 const express = require("express");
 const router = express.Router();
 const { Pool } = require("pg");
@@ -70,8 +233,7 @@ router.post("/", authMiddleware, async (req, res) => {
     dni = null,
     address = null,
     phone = null,
-    business_category = null,
-    working_hours = null  // Nuevo campo
+    business_category = null
   } = req.body;
 
   // Validar campos obligatorios
@@ -122,10 +284,10 @@ router.post("/", authMiddleware, async (req, res) => {
 
       // 4. Insertar el comercio
       const commerceQuery = `
-        INSERT INTO commerces (business_name, subdomain, business_category, working_hours, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id
+        INSERT INTO commerces (business_name, subdomain, business_category, created_at, updated_at)
+        VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id
       `;
-      const commerceValues = [business_name, subdomain, business_category, working_hours];
+      const commerceValues = [business_name, subdomain, business_category];
       const commerceResult = await client.query(commerceQuery, commerceValues);
       const commerceId = commerceResult.rows[0].id;
 
@@ -151,8 +313,7 @@ router.post("/", authMiddleware, async (req, res) => {
           id: commerceId,
           business_name,
           subdomain,
-          business_category,
-          working_hours
+          business_category
         },
         owner: {
           id: userId,
@@ -197,10 +358,7 @@ router.post("/", authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * 🔹 PUT /api/commerces/:id
- * ✅ Actualiza la información básica de un comercio
- */
+// Actualización en routes/commerces.js - Modificación del endpoint PUT /api/commerces/:id
 router.put("/:id", authMiddleware, async (req, res) => {
   const { id } = req.params;
   const {
@@ -217,8 +375,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
     contact_email,
     social_instagram,
     social_facebook,
-    social_whatsapp,
-    working_hours           // Nuevo campo
+    social_whatsapp
   } = req.body;
 
   try {
@@ -259,9 +416,8 @@ router.put("/:id", authMiddleware, async (req, res) => {
         social_instagram = $12,
         social_facebook = $13,
         social_whatsapp = $14,
-        working_hours = $15,
         updated_at = NOW()
-      WHERE id = $16
+      WHERE id = $15
       RETURNING *
     `;
 
@@ -280,7 +436,6 @@ router.put("/:id", authMiddleware, async (req, res) => {
       social_instagram,
       social_facebook,
       social_whatsapp,
-      working_hours,
       id
     ];
 
@@ -294,268 +449,6 @@ router.put("/:id", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("❌ Error actualizando comercio:", error);
     res.status(500).json({ error: "Error en el servidor al actualizar el comercio" });
-  }
-});
-
-/**
- * 🔹 PUT /api/commerces/:id/full-update
- * ✅ Actualiza la información completa de un comercio y su owner asociado.
- * Requiere verificación de contraseña del superuser por razones de seguridad.
- */
-router.put("/:id/full-update", authMiddleware, async (req, res) => {
-  const { id } = req.params;
-  const {
-    superuser_password, // Para verificar autorización
-    commerce_data, // Datos del comercio
-    owner_data     // Datos del owner
-  } = req.body;
-
-  try {
-    // Verificar si el usuario es SUPERUSER
-    if (req.user.role !== 'SUPERUSER') {
-      return res.status(403).json({ error: "No tienes permisos para modificar esta información confidencial" });
-    }
-
-    // Verificar la contraseña del superuser
-    const userResult = await pool.query('SELECT password FROM users WHERE id = $1 AND role = $2', [req.user.userId, 'SUPERUSER']);
-
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
-    }
-
-    // Verificar la contraseña del superuser
-    const isPasswordValid = await bcrypt.compare(superuser_password, userResult.rows[0].password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: "Contraseña incorrecta" });
-    }
-
-    // Buscar el comercio
-    const commerceQuery = await pool.query("SELECT * FROM commerces WHERE id = $1", [id]);
-
-    if (commerceQuery.rows.length === 0) {
-      return res.status(404).json({ error: "El comercio no existe" });
-    }
-
-    // Iniciar transacción para actualizar comercio y owner de manera atómica
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // 1. Actualizar el comercio con todos los campos
-      if (commerce_data) {
-        const {
-          business_name,
-          subdomain,
-          business_category,
-          is_open,
-          delivery_time,
-          delivery_fee,
-          min_order_value,
-          accepts_delivery,
-          accepts_pickup,
-          contact_phone,
-          contact_email,
-          social_instagram,
-          social_facebook,
-          social_whatsapp,
-          working_hours
-        } = commerce_data;
-
-        // Verificar si el nuevo subdominio ya está en uso (si es diferente al actual)
-        if (subdomain) {
-          const existingSubdomain = await client.query(
-            "SELECT id FROM commerces WHERE subdomain = $1 AND id != $2",
-            [subdomain, id]
-          );
-
-          if (existingSubdomain.rows.length > 0) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ error: "El subdominio ya está en uso. Elige otro." });
-          }
-        }
-
-        // Actualizar el comercio
-        const updateCommerceQuery = `
-          UPDATE commerces
-          SET
-            business_name = COALESCE($1, business_name),
-            subdomain = COALESCE($2, subdomain),
-            business_category = $3,
-            is_open = $4,
-            delivery_time = $5,
-            delivery_fee = $6,
-            min_order_value = $7,
-            accepts_delivery = $8,
-            accepts_pickup = $9,
-            contact_phone = $10,
-            contact_email = $11,
-            social_instagram = $12,
-            social_facebook = $13,
-            social_whatsapp = $14,
-            working_hours = $15,
-            updated_at = NOW()
-          WHERE id = $16
-          RETURNING *
-        `;
-
-        const updateCommerceValues = [
-          business_name,
-          subdomain,
-          business_category,
-          is_open,
-          delivery_time,
-          delivery_fee,
-          min_order_value,
-          accepts_delivery,
-          accepts_pickup,
-          contact_phone,
-          contact_email,
-          social_instagram,
-          social_facebook,
-          social_whatsapp,
-          working_hours,
-          id
-        ];
-
-        const updatedCommerce = await client.query(updateCommerceQuery, updateCommerceValues);
-      }
-
-      // 2. Buscar al owner del comercio
-      const ownerQuery = await client.query(
-        "SELECT id, email, password, first_name, last_name, dni, address, phone FROM users WHERE commerce_id = $1 AND role = 'OWNER'",
-        [id]
-      );
-
-      // Si no existe un owner, terminar transacción y devolver respuesta parcial
-      if (ownerQuery.rows.length === 0) {
-        await client.query('COMMIT');
-        return res.json({
-          message: "Comercio actualizado, pero no se encontró un owner asociado",
-          commerce: (await pool.query("SELECT * FROM commerces WHERE id = $1", [id])).rows[0],
-          owner: null
-        });
-      }
-
-      const ownerId = ownerQuery.rows[0].id;
-
-      // 3. Actualizar al owner si se proporcionaron datos
-      if (owner_data) {
-        const {
-          email,
-          first_name,
-          last_name,
-          dni,
-          address,
-          phone,
-          password // Nueva contraseña (opcional)
-        } = owner_data;
-
-        // Si se proporciona un email nuevo, verificar que no esté en uso
-        if (email && email !== ownerQuery.rows[0].email) {
-          const existingEmail = await client.query(
-            "SELECT id FROM users WHERE email = $1 AND id != $2",
-            [email, ownerId]
-          );
-
-          if (existingEmail.rows.length > 0) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ error: "El email ya está en uso. Elige otro." });
-          }
-        }
-
-        // Preparar la consulta de actualización del owner
-        let updateOwnerQuery;
-        let updateOwnerValues;
-
-        if (password) {
-          // Si se proporciona una nueva contraseña, hashearla
-          const salt = await bcrypt.genSalt(10);
-          const hashedPassword = await bcrypt.hash(password, salt);
-
-          updateOwnerQuery = `
-            UPDATE users
-            SET
-              email = COALESCE($1, email),
-              first_name = $2,
-              last_name = $3,
-              dni = $4,
-              address = $5,
-              phone = $6,
-              password = $7,
-              updated_at = NOW()
-            WHERE id = $8
-            RETURNING id, email, first_name, last_name, dni, address, phone
-          `;
-
-          updateOwnerValues = [
-            email,
-            first_name,
-            last_name,
-            dni,
-            address,
-            phone,
-            hashedPassword,
-            ownerId
-          ];
-        } else {
-          // Si no hay nueva contraseña, no modificar la existente
-          updateOwnerQuery = `
-            UPDATE users
-            SET
-              email = COALESCE($1, email),
-              first_name = $2,
-              last_name = $3,
-              dni = $4,
-              address = $5,
-              phone = $6,
-              updated_at = NOW()
-            WHERE id = $7
-            RETURNING id, email, first_name, last_name, dni, address, phone
-          `;
-
-          updateOwnerValues = [
-            email,
-            first_name,
-            last_name,
-            dni,
-            address,
-            phone,
-            ownerId
-          ];
-        }
-
-        // Ejecutar la actualización del owner
-        const updatedOwner = await client.query(updateOwnerQuery, updateOwnerValues);
-      }
-
-      // Confirmar la transacción
-      await client.query('COMMIT');
-
-      // Obtener datos actualizados para devolver
-      const finalCommerce = (await pool.query("SELECT * FROM commerces WHERE id = $1", [id])).rows[0];
-      const finalOwner = (await pool.query(
-        "SELECT id, email, first_name, last_name, dni, address, phone FROM users WHERE commerce_id = $1 AND role = 'OWNER'",
-        [id]
-      )).rows[0];
-
-      // Responder con los datos actualizados
-      res.json({
-        message: "Comercio y owner actualizados correctamente",
-        commerce: finalCommerce,
-        owner: finalOwner
-      });
-
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error("❌ Error actualizando comercio y owner:", error);
-      throw error;
-    } finally {
-      client.release();
-    }
-
-  } catch (error) {
-    console.error("❌ Error obteniendo detalles completos del comercio:", error);
-    res.status(500).json({ error: "Error en el servidor al actualizar detalles del comercio" });
   }
 });
 
@@ -805,103 +698,103 @@ router.put("/:id/update-logo", authMiddleware, upload.single('logo'), async (req
 });
 
 /**
- * 🔹 POST /api/commerces/:id/full-details
+ * 🔹 GET /api/commerces/:id/full-details
  * ✅ Obtiene información detallada de un comercio y su owner asociado, incluyendo la contraseña.
  * Requiere verificación de contraseña del superuser por razones de seguridad.
  */
 router.post("/:id/full-details", authMiddleware, async (req, res) => {
   const { id } = req.params;
-    const { superuser_password } = req.body;
+  const { superuser_password } = req.body;
 
-    try {
-      // Verificar si el usuario es SUPERUSER
-      if (req.user.role !== 'SUPERUSER') {
-        return res.status(403).json({ error: "No tienes permisos para acceder a esta información confidencial" });
-      }
+  try {
+    // Verificar si el usuario es SUPERUSER
+    if (req.user.role !== 'SUPERUSER') {
+      return res.status(403).json({ error: "No tienes permisos para acceder a esta información confidencial" });
+    }
 
-      // Verificar la contraseña del superuser
-      const userResult = await pool.query('SELECT password FROM users WHERE id = $1 AND role = $2', [req.user.userId, 'SUPERUSER']);
+    // Verificar la contraseña del superuser
+    const userResult = await pool.query('SELECT password FROM users WHERE id = $1 AND role = $2', [req.user.userId, 'SUPERUSER']);
 
-      if (userResult.rows.length === 0) {
-        return res.status(404).json({ error: "Usuario no encontrado" });
-      }
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
 
-      // Verificar la contraseña del superuser
-      const isPasswordValid = await bcrypt.compare(superuser_password, userResult.rows[0].password);
-      if (!isPasswordValid) {
-        return res.status(401).json({ error: "Contraseña incorrecta" });
-      }
+    // Verificar la contraseña del superuser
+    const isPasswordValid = await bcrypt.compare(superuser_password, userResult.rows[0].password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: "Contraseña incorrecta" });
+    }
 
-      // Buscar el comercio
-      const commerceQuery = await pool.query("SELECT * FROM commerces WHERE id = $1", [id]);
+    // Buscar el comercio
+    const commerceQuery = await pool.query("SELECT * FROM commerces WHERE id = $1", [id]);
 
-      if (commerceQuery.rows.length === 0) {
-        return res.status(404).json({ error: "El comercio no existe" });
-      }
+    if (commerceQuery.rows.length === 0) {
+      return res.status(404).json({ error: "El comercio no existe" });
+    }
 
-      const commerce = commerceQuery.rows[0];
+    const commerce = commerceQuery.rows[0];
 
-      // Buscar al owner del comercio y su contraseña
-      const ownerQuery = await pool.query(
-        "SELECT id, email, password, first_name, last_name, dni, address, phone, created_at FROM users WHERE commerce_id = $1 AND role = 'OWNER'",
-        [id]
-      );
+    // Buscar al owner del comercio y su contraseña
+    const ownerQuery = await pool.query(
+      "SELECT id, email, password, first_name, last_name, dni, address, phone, created_at FROM users WHERE commerce_id = $1 AND role = 'OWNER'",
+      [id]
+    );
 
-      const owner = ownerQuery.rows.length > 0 ? ownerQuery.rows[0] : null;
+    const owner = ownerQuery.rows.length > 0 ? ownerQuery.rows[0] : null;
 
-      // Responder con los detalles completos
-      res.json({
-        commerce,
-        owner
+    // Responder con los detalles completos
+    res.json({
+      commerce,
+      owner
+    });
+
+  } catch (error) {
+    console.error("❌ Error obteniendo detalles completos del comercio:", error);
+    res.status(500).json({ error: "Error en el servidor al obtener detalles del comercio" });
+  }
+});
+
+/**
+ * 🔹 GET /api/commerces/my-commerce
+ * Obtiene la información del comercio asociado al usuario autenticado.
+ */
+router.get("/my-commerce", authMiddleware, async (req, res) => {
+  try {
+    // Verificar si el usuario tiene un commerceId asociado
+    const commerceId = req.user.commerceId;
+
+    if (!commerceId) {
+      return res.status(400).json({
+        error: "No se encontró un comercio asociado a este usuario",
+        user: {
+          id: req.user.userId,
+          role: req.user.role
+        }
       });
-
-    } catch (error) {
-      console.error("❌ Error obteniendo detalles completos del comercio:", error);
-      res.status(500).json({ error: "Error en el servidor al obtener detalles del comercio" });
     }
-  });
 
-  /**
-   * 🔹 GET /api/commerces/my-commerce
-   * Obtiene la información del comercio asociado al usuario autenticado.
-   */
-  router.get("/my-commerce", authMiddleware, async (req, res) => {
-    try {
-      // Verificar si el usuario tiene un commerceId asociado
-      const commerceId = req.user.commerceId;
+    // Buscar el comercio por ID con todos los campos
+    const query = `
+      SELECT
+        id, business_name, business_category, subdomain, logo_url, banner_url,
+        is_open, delivery_time, delivery_fee, min_order_value, accepts_delivery, accepts_pickup,
+        contact_phone, contact_email, social_instagram, social_facebook, social_whatsapp,
+        created_at, updated_at
+      FROM commerces
+      WHERE id = $1
+    `;
+    const result = await pool.query(query, [commerceId]);
 
-      if (!commerceId) {
-        return res.status(400).json({
-          error: "No se encontró un comercio asociado a este usuario",
-          user: {
-            id: req.user.userId,
-            role: req.user.role
-          }
-        });
-      }
-
-      // Buscar el comercio por ID con todos los campos
-      const query = `
-        SELECT
-          id, business_name, business_category, subdomain, logo_url, banner_url,
-          is_open, delivery_time, delivery_fee, min_order_value, accepts_delivery, accepts_pickup,
-          contact_phone, contact_email, social_instagram, social_facebook, social_whatsapp,
-          working_hours,    /* Nuevo campo */
-          created_at, updated_at
-        FROM commerces
-        WHERE id = $1
-      `;
-      const result = await pool.query(query, [commerceId]);
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: "Comercio no encontrado" });
-      }
-
-      res.json(result.rows[0]);
-    } catch (error) {
-      console.error("❌ Error obteniendo comercio del usuario:", error);
-      res.status(500).json({ error: "Error al obtener información del comercio" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Comercio no encontrado" });
     }
-  });
 
-  module.exports = router;
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("❌ Error obteniendo comercio del usuario:", error);
+    res.status(500).json({ error: "Error al obtener información del comercio" });
+  }
+});
+
+module.exports = router;
+
